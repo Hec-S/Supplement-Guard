@@ -1,0 +1,5 @@
+{
+  "name": "SupplementGuard",
+  "description": "An AI-powered tool for insurance reviewers to analyze and detect fraud in supplement claims. It compares original and supplement claim packages (invoices and photos), provides a fraud score with explanations, and offers a comprehensive UI for side-by-side review.",
+  "requestFramePermissions": []
+}
