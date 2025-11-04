@@ -1,13 +1,6 @@
-// Make sure jspdf and jspdf-autotable are loaded from CDN before this script runs.
-// The UMD builds will attach themselves to the window object.
-
-declare global {
-  interface Window {
-    jspdf: any;
-  }
-}
-
-import { ClaimData } from '../types';
+import jsPDF from 'jspdf';
+import { ClaimData, ComparisonAnalysis } from '../types';
+import { analysisSummaryService } from './analysisSummaryService';
 
 const formatCurrency = (amount: number) =>
   new Intl.NumberFormat('en-US', {
@@ -15,217 +8,464 @@ const formatCurrency = (amount: number) =>
     currency: 'USD',
   }).format(amount);
 
+const formatPercentage = (value: number | null) =>
+  value !== null ? `${value > 0 ? '+' : ''}${value.toFixed(2)}%` : 'N/A';
+
 /**
- * Generates a comprehensive, multi-page PDF report for a claim analysis.
+ * Generates a comprehensive PDF report for a claim analysis.
  * @param claimData The claim data to be included in the report.
+ * @param comparisonAnalysis Optional comparison analysis for enhanced reporting.
  */
-export const generatePdfReport = (claimData: ClaimData) => {
-  const { jsPDF } = window.jspdf;
-  const doc = new jsPDF('p', 'pt', 'a4');
+export const generatePdfReport = (claimData: ClaimData, comparisonAnalysis?: ComparisonAnalysis) => {
+  try {
+    const doc = new jsPDF('p', 'mm', 'a4');
+    const pageWidth = doc.internal.pageSize.getWidth();
+    const pageHeight = doc.internal.pageSize.getHeight();
+    const safeZone = 25; // Increased safe margin for printing
+    const maxContentWidth = pageWidth - (2 * safeZone);
+    let currentY = safeZone;
+    
+    // Helper function to check page space and add new page if needed
+    const checkPageSpace = (requiredHeight: number) => {
+      const availableSpace = pageHeight - safeZone - currentY;
+      if (availableSpace < requiredHeight) {
+        doc.addPage();
+        currentY = safeZone;
+      }
+    };
+    
+    // Helper function to add text with proper wrapping
+    const addSafeText = (text: string, x: number, maxWidth: number, fontSize: number = 12, fontStyle: string = 'normal') => {
+      doc.setFontSize(fontSize);
+      doc.setFont(undefined, fontStyle);
+      const splitText = doc.splitTextToSize(text, maxWidth);
+      const textHeight = splitText.length * 5;
+      
+      checkPageSpace(textHeight + 5);
+      doc.text(splitText, x, currentY);
+      currentY += textHeight;
+      return textHeight;
+    };
 
-  // Define document-wide styles
-  const HEADER_COLOR = [30, 41, 59]; // slate-800 (RGB)
-  const TEXT_COLOR = [71, 85, 105]; // slate-600 (RGB)
-  const BORDER_COLOR = [226, 232, 240]; // slate-200 (RGB)
-  const PAGE_MARGIN = 40;
+    // Header
+    doc.setTextColor(30, 64, 175); // Blue color
+    addSafeText('SupplementGuard Claim Report', safeZone, maxContentWidth, 20, 'bold');
+    
+    currentY += 5;
+    doc.setTextColor(102, 102, 102); // Gray color
+    const claimText = `Claim ID: ${claimData.id}`;
+    const dateText = `Generated: ${new Date().toLocaleDateString()}`;
+    
+    addSafeText(claimText, safeZone, maxContentWidth / 2, 12, 'normal');
+    // Position date text properly
+    const dateWidth = doc.getTextWidth(dateText);
+    doc.text(dateText, pageWidth - safeZone - dateWidth, currentY - 5);
 
-  // --- Reusable Page Elements ---
-  const drawPageHeader = (pageTitle: string) => {
-    doc.setFontSize(10);
-    doc.setTextColor(...TEXT_COLOR);
-    doc.text('SupplementGuard Claim Report', PAGE_MARGIN, 30);
-    doc.text(`Claim ID: ${claimData.id}`, doc.internal.pageSize.getWidth() - PAGE_MARGIN, 30, {
-      align: 'right',
+    // Line separator
+    currentY += 10;
+    checkPageSpace(20);
+    doc.setDrawColor(200, 200, 200);
+    doc.line(safeZone, currentY, pageWidth - safeZone, currentY);
+    currentY += 15;
+
+    // Contributing Factors Section
+    checkPageSpace(60);
+    doc.setTextColor(51, 51, 51);
+    addSafeText('Contributing Factors', safeZone, maxContentWidth, 16, 'bold');
+    currentY += 5;
+
+    claimData.fraudReasons.forEach((reason, index) => {
+      const text = `${index + 1}. ${reason}`;
+      addSafeText(text, safeZone, maxContentWidth, 12, 'normal');
+      currentY += 3;
     });
-    doc.setFontSize(18);
-    doc.setTextColor(...HEADER_COLOR);
-    doc.setFont(undefined, 'bold');
-    doc.text(pageTitle, PAGE_MARGIN, 60);
-    doc.setDrawColor(...BORDER_COLOR);
-    doc.line(PAGE_MARGIN, 70, doc.internal.pageSize.getWidth() - PAGE_MARGIN, 70);
-  };
 
-  const drawPageFooter = () => {
-    const pageCount = doc.internal.getNumberOfPages();
+    currentY += 10;
+
+    // AI Summary
+    checkPageSpace(60);
+    addSafeText('AI Analysis Summary:', safeZone, maxContentWidth, 12, 'bold');
+    currentY += 3;
+
+    const summaryLines = claimData.invoiceSummary.split('\n').filter(line => line.trim() !== '');
+    summaryLines.forEach(line => {
+      const cleanLine = line.replace(/\*\*/g, '').replace(/^- |^\* /, '• ');
+      if (cleanLine.trim()) {
+        addSafeText(cleanLine, safeZone, maxContentWidth, 12, 'normal');
+        currentY += 2;
+      }
+    });
+
+    currentY += 15;
+
+    // Original Invoice Section
+    checkPageSpace(100);
+    addSafeText('Original Invoice', safeZone, maxContentWidth, 16, 'bold');
+    currentY += 5;
+
+    // Create table for original invoice
+    const originalHeaders = ['Description', 'Qty', 'Price', 'Total'];
+    const originalData = claimData.originalInvoice.lineItems.map(item => [
+      item.description,
+      item.quantity.toString(),
+      formatCurrency(item.price),
+      formatCurrency(item.total)
+    ]);
+    
+    // Add totals rows
+    originalData.push([
+      'SUBTOTAL',
+      '',
+      '',
+      formatCurrency(claimData.originalInvoice.subtotal)
+    ]);
+    originalData.push([
+      'TAX',
+      '',
+      '',
+      formatCurrency(claimData.originalInvoice.tax)
+    ]);
+    originalData.push([
+      'TOTAL',
+      '',
+      '',
+      formatCurrency(claimData.originalInvoice.total)
+    ]);
+    
+    createImprovedTable(doc, originalHeaders, originalData, safeZone, currentY, maxContentWidth);
+    currentY += (originalData.length + 1) * 8 + 10;
+
+    // Supplement Invoice Section
+    checkPageSpace(100);
+    addSafeText('Supplement Invoice', safeZone, maxContentWidth, 16, 'bold');
+    currentY += 5;
+
+    // Create table for supplement invoice with color coding
+    const supplementHeaders = ['Description', 'Qty', 'Price', 'Total', 'Status'];
+    const supplementData = claimData.supplementInvoice.lineItems.map(item => [
+      item.description,
+      item.quantity.toString(),
+      formatCurrency(item.price),
+      formatCurrency(item.total),
+      item.isNew ? 'NEW' : item.isChanged ? 'CHANGED' : 'SAME'
+    ]);
+    
+    // Add totals rows
+    supplementData.push([
+      'SUBTOTAL',
+      '',
+      '',
+      formatCurrency(claimData.supplementInvoice.subtotal),
+      ''
+    ]);
+    supplementData.push([
+      'TAX',
+      '',
+      '',
+      formatCurrency(claimData.supplementInvoice.tax),
+      ''
+    ]);
+    supplementData.push([
+      'TOTAL',
+      '',
+      '',
+      formatCurrency(claimData.supplementInvoice.total),
+      ''
+    ]);
+    
+    // Cost difference
+    const difference = claimData.supplementInvoice.total - claimData.originalInvoice.total;
+    supplementData.push([
+      'COST DIFFERENCE',
+      '',
+      '',
+      formatCurrency(difference),
+      difference > 0 ? 'INCREASE' : 'DECREASE'
+    ]);
+    
+    createImprovedTableWithColors(doc, supplementHeaders, supplementData, safeZone, currentY, maxContentWidth, claimData.supplementInvoice.lineItems);
+    currentY += (supplementData.length + 1) * 8 + 10;
+
+
+    // Helper function to create improved tables with color coding
+    function createImprovedTableWithColors(
+      doc: jsPDF,
+      headers: string[],
+      data: string[][],
+      x: number,
+      y: number,
+      width: number,
+      lineItems: any[]
+    ): void {
+      const colWidth = width / headers.length;
+      let tableY = y;
+      
+      // Check if table fits on current page
+      const estimatedTableHeight = (data.length + 1) * 10;
+      if (tableY + estimatedTableHeight > pageHeight - safeZone) {
+        doc.addPage();
+        tableY = safeZone;
+        currentY = safeZone;
+      }
+      
+      // Headers
+      doc.setFillColor(240, 240, 240);
+      doc.rect(x, tableY, width, 10, 'F');
+      doc.setFont(undefined, 'bold');
+      doc.setTextColor(51, 51, 51);
+      doc.setFontSize(10);
+      
+      headers.forEach((header, i) => {
+        const cellX = x + i * colWidth;
+        const maxCellWidth = colWidth - 4;
+        const wrappedHeader = doc.splitTextToSize(header, maxCellWidth);
+        doc.text(wrappedHeader, cellX + 2, tableY + 7);
+      });
+      tableY += 12;
+
+      // Data rows
+      doc.setFont(undefined, 'normal');
+      doc.setFontSize(9);
+      
+      data.forEach((row, rowIndex) => {
+        // Calculate row height based on content
+        let maxRowHeight = 8;
+        const wrappedCells: string[][] = [];
+        
+        row.forEach((cell, colIndex) => {
+          const cellWidth = colWidth - 4;
+          const cellText = String(cell || '');
+          const wrapped = doc.splitTextToSize(cellText, cellWidth);
+          wrappedCells.push(wrapped);
+          maxRowHeight = Math.max(maxRowHeight, wrapped.length * 4 + 4);
+        });
+        
+        // Check if row fits on current page
+        if (tableY + maxRowHeight > pageHeight - safeZone) {
+          doc.addPage();
+          tableY = safeZone;
+          
+          // Redraw headers on new page
+          doc.setFillColor(240, 240, 240);
+          doc.rect(x, tableY, width, 10, 'F');
+          doc.setFont(undefined, 'bold');
+          doc.setFontSize(10);
+          headers.forEach((header, i) => {
+            const cellX = x + i * colWidth;
+            const maxCellWidth = colWidth - 4;
+            const wrappedHeader = doc.splitTextToSize(header, maxCellWidth);
+            doc.text(wrappedHeader, cellX + 2, tableY + 7);
+          });
+          tableY += 12;
+          doc.setFont(undefined, 'normal');
+          doc.setFontSize(9);
+        }
+        
+        // Draw alternating row background
+        if (rowIndex % 2 === 1) {
+          doc.setFillColor(248, 250, 252);
+          doc.rect(x, tableY, width, maxRowHeight, 'F');
+        }
+        
+        // Draw cell content with color coding for status column
+        wrappedCells.forEach((cellLines, colIndex) => {
+          const cellX = x + colIndex * colWidth;
+          
+          // Apply color coding for status column (last column)
+          if (colIndex === headers.length - 1 && rowIndex < lineItems.length) {
+            const item = lineItems[rowIndex];
+            if (item.isNew) {
+              doc.setTextColor(255, 0, 0); // Red for NEW
+            } else if (item.isChanged) {
+              doc.setTextColor(255, 140, 0); // Orange for CHANGED
+            } else {
+              doc.setTextColor(51, 51, 51); // Default color for SAME
+            }
+          } else {
+            doc.setTextColor(51, 51, 51); // Default color for other columns
+          }
+          
+          doc.text(cellLines, cellX + 2, tableY + 6);
+        });
+        
+        tableY += maxRowHeight;
+      });
+      
+      currentY = tableY;
+    }
+
+    // Helper function to create improved tables
+    function createImprovedTable(
+      doc: jsPDF,
+      headers: string[],
+      data: string[][],
+      x: number,
+      y: number,
+      width: number
+    ): void {
+      const colWidth = width / headers.length;
+      let tableY = y;
+      
+      // Check if table fits on current page
+      const estimatedTableHeight = (data.length + 1) * 10;
+      if (tableY + estimatedTableHeight > pageHeight - safeZone) {
+        doc.addPage();
+        tableY = safeZone;
+        currentY = safeZone;
+      }
+      
+      // Headers
+      doc.setFillColor(240, 240, 240);
+      doc.rect(x, tableY, width, 10, 'F');
+      doc.setFont(undefined, 'bold');
+      doc.setTextColor(51, 51, 51);
+      doc.setFontSize(10);
+      
+      headers.forEach((header, i) => {
+        const cellX = x + i * colWidth;
+        const maxCellWidth = colWidth - 4;
+        const wrappedHeader = doc.splitTextToSize(header, maxCellWidth);
+        doc.text(wrappedHeader, cellX + 2, tableY + 7);
+      });
+      tableY += 12;
+
+      // Data rows
+      doc.setFont(undefined, 'normal');
+      doc.setFontSize(9);
+      
+      data.forEach((row, rowIndex) => {
+        // Calculate row height based on content
+        let maxRowHeight = 8;
+        const wrappedCells: string[][] = [];
+        
+        row.forEach((cell, colIndex) => {
+          const cellWidth = colWidth - 4;
+          const cellText = String(cell || '');
+          const wrapped = doc.splitTextToSize(cellText, cellWidth);
+          wrappedCells.push(wrapped);
+          maxRowHeight = Math.max(maxRowHeight, wrapped.length * 4 + 4);
+        });
+        
+        // Check if row fits on current page
+        if (tableY + maxRowHeight > pageHeight - safeZone) {
+          doc.addPage();
+          tableY = safeZone;
+          
+          // Redraw headers on new page
+          doc.setFillColor(240, 240, 240);
+          doc.rect(x, tableY, width, 10, 'F');
+          doc.setFont(undefined, 'bold');
+          doc.setFontSize(10);
+          headers.forEach((header, i) => {
+            const cellX = x + i * colWidth;
+            const maxCellWidth = colWidth - 4;
+            const wrappedHeader = doc.splitTextToSize(header, maxCellWidth);
+            doc.text(wrappedHeader, cellX + 2, tableY + 7);
+          });
+          tableY += 12;
+          doc.setFont(undefined, 'normal');
+          doc.setFontSize(9);
+        }
+        
+        // Draw alternating row background
+        if (rowIndex % 2 === 1) {
+          doc.setFillColor(248, 250, 252);
+          doc.rect(x, tableY, width, maxRowHeight, 'F');
+        }
+        
+        // Draw cell content
+        wrappedCells.forEach((cellLines, colIndex) => {
+          const cellX = x + colIndex * colWidth;
+          doc.text(cellLines, cellX + 2, tableY + 6);
+        });
+        
+        tableY += maxRowHeight;
+      });
+      
+      currentY = tableY;
+    }
+
+    // Footer
+    const pageCount = doc.getNumberOfPages();
     for (let i = 1; i <= pageCount; i++) {
       doc.setPage(i);
       doc.setFontSize(8);
-      doc.setTextColor(148, 163, 184); // slate-400
-      doc.text(`Page ${i} of ${pageCount}`, doc.internal.pageSize.getWidth() / 2, doc.internal.pageSize.getHeight() - 20, {
-        align: 'center',
-      });
+      doc.setTextColor(128, 128, 128);
+      doc.text(`Page ${i} of ${pageCount}`, pageWidth / 2, pageHeight - 10, { align: 'center' });
+      doc.text('Generated by SupplementGuard', pageWidth - safeZone, pageHeight - 10, { align: 'right' });
     }
-  };
 
-  // --- Page 1: Analysis Summary ---
-  drawPageHeader('Analysis Summary');
+    doc.save(`Claim-Report-${claimData.id}.pdf`);
+  } catch (error) {
+    console.error('Error generating PDF:', error);
+    alert('Failed to generate PDF report. Please try again.');
+  }
+};
 
-  const getScoreColor = () => {
-    if (claimData.fraudScore > 75) return [[239, 68, 68], [254, 226, 226]]; // red
-    if (claimData.fraudScore > 40) return [[245, 158, 11], [254, 243, 199]]; // amber
-    return [[34, 197, 94], [220, 252, 231]]; // green
-  };
-
-  const [scoreColor, scoreBgColor] = getScoreColor();
-
-  doc.setFontSize(11);
-  doc.setTextColor(...HEADER_COLOR);
-  doc.setFont(undefined, 'bold');
-  doc.text('Fraud Risk Score', PAGE_MARGIN, 100);
-  doc.text('Top Contributing Factors', 220, 100);
-
-  // Score circle visual
-  doc.setLineWidth(6);
-  doc.setDrawColor(...scoreBgColor);
-  doc.circle(PAGE_MARGIN + 50, 150, 40, 'S');
-
-  doc.setDrawColor(...scoreColor);
-  const scoreAngle = -90 + (claimData.fraudScore / 100) * 360;
-  doc.arc(PAGE_MARGIN + 50, 150, 40, -90, scoreAngle, 'S');
-
-  doc.setFontSize(26);
-  doc.setFont(undefined, 'bold');
-  doc.setTextColor(...scoreColor);
-  doc.text(String(claimData.fraudScore), PAGE_MARGIN + 50, 155, { align: 'center' });
-
-  // Fraud reasons list
-  doc.setFontSize(10);
-  doc.setTextColor(...TEXT_COLOR);
-  doc.setFont(undefined, 'normal');
-  const reasonsText = claimData.fraudReasons.map((r) => `• ${r}`);
-  doc.text(reasonsText, 220, 120, {
-    maxWidth: doc.internal.pageSize.getWidth() - 220 - PAGE_MARGIN,
-  });
-
-  let finalY = 220;
-  doc.setDrawColor(...BORDER_COLOR);
-  doc.line(PAGE_MARGIN, finalY, doc.internal.pageSize.getWidth() - PAGE_MARGIN, finalY);
-
-  // AI Summary of Changes
-  doc.setFontSize(11);
-  doc.setTextColor(...HEADER_COLOR);
-  doc.setFont(undefined, 'bold');
-  doc.text('AI Summary of Changes', PAGE_MARGIN, finalY + 25);
-
-  doc.setFontSize(10);
-  doc.setTextColor(...TEXT_COLOR);
-  doc.setFont(undefined, 'normal');
-  const summaryLines = claimData.invoiceSummary
-    .split('\n')
-    .filter((line) => line.trim() !== '');
-
-  let currentY = finalY + 45;
-  summaryLines.forEach((line) => {
-    const isBold = line.startsWith('**') && line.endsWith('**');
-    const text = line.replace(/\*\*/g, '').replace(/^- |^\* /, '  • ');
-    doc.setFont(undefined, isBold ? 'bold' : 'normal');
-    const splitText = doc.splitTextToSize(text, doc.internal.pageSize.getWidth() - PAGE_MARGIN * 2);
-    doc.text(splitText, PAGE_MARGIN, currentY);
-    currentY += splitText.length * 12 + (isBold ? 4 : 0);
-  });
-
-  // --- Page 2+: Invoice Comparison ---
-  doc.addPage();
-  drawPageHeader('Invoice Comparison');
-
-  const tableWidth = (doc.internal.pageSize.getWidth() - PAGE_MARGIN * 2 - 10) / 2;
-  const columns = ['Description', 'Qty', 'Price', 'Total'];
-  const baseTableConfig = {
-    startY: 120,
-    tableWidth: tableWidth,
-    headStyles: {
-      fillColor: HEADER_COLOR,
-      textColor: [255, 255, 255],
-      fontStyle: 'bold',
-      fontSize: 9,
-    },
-    footStyles: {
-      fillColor: [241, 245, 249], // slate-100
-      textColor: HEADER_COLOR,
-      fontStyle: 'bold',
-      fontSize: 9,
-    },
-    bodyStyles: {
-      textColor: TEXT_COLOR,
-      fontSize: 9,
-    }
-  };
-
-
-  // Original Invoice
-  const originalBody = claimData.originalInvoice.lineItems.map((item) => [
-    item.description,
-    item.quantity.toString(),
-    formatCurrency(item.price),
-    formatCurrency(item.total),
-  ]);
-
-  const originalFoot = [
-    [{ content: 'Subtotal', colSpan: 3, styles: { halign: 'right' } }, { content: formatCurrency(claimData.originalInvoice.subtotal), styles: { halign: 'right' } }],
-    [{ content: 'Tax', colSpan: 3, styles: { halign: 'right' } }, { content: formatCurrency(claimData.originalInvoice.tax), styles: { halign: 'right' } }],
-    [{ content: 'Total', colSpan: 3, styles: { halign: 'right', fontStyle: 'bold' } }, { content: formatCurrency(claimData.originalInvoice.total), styles: { halign: 'right', fontStyle: 'bold' } }],
-  ];
-
-  doc.setFontSize(11);
-  doc.setFont(undefined, 'bold');
-  doc.setTextColor(...HEADER_COLOR);
-  doc.text('Original Repair Estimate', PAGE_MARGIN, 100);
-
-  doc.autoTable({
-    ...baseTableConfig,
-    head: [columns],
-    body: originalBody,
-    foot: originalFoot,
-    margin: { left: PAGE_MARGIN, right: doc.internal.pageSize.getWidth() - PAGE_MARGIN - tableWidth },
-    didParseCell: (data: any) => {
-      if (data.section === 'body') {
-        if (data.column.index === 1) data.cell.styles.halign = 'center'; // Qty
-        if (data.column.index === 2 || data.column.index === 3) data.cell.styles.halign = 'right'; // Price & Total
-      }
-    },
-  });
-
-  // Supplement Invoice
-  const supplementBody = claimData.supplementInvoice.lineItems.map((item) => [
-    item.description,
-    item.quantity.toString(),
-    formatCurrency(item.price),
-    formatCurrency(item.total),
-  ]);
+/**
+ * Generates a CSV export of the claim analysis data.
+ * @param claimData The claim data to be exported as CSV.
+ */
+export const generateCsvReport = (claimData: ClaimData) => {
+  const formatCurrency = (amount: number) => amount.toFixed(2);
   
-  const supplementFoot = [
-    [{ content: 'Subtotal', colSpan: 3, styles: { halign: 'right' } }, { content: formatCurrency(claimData.supplementInvoice.subtotal), styles: { halign: 'right' } }],
-    [{ content: 'Tax', colSpan: 3, styles: { halign: 'right' } }, { content: formatCurrency(claimData.supplementInvoice.tax), styles: { halign: 'right' } }],
-    [{ content: 'Total', colSpan: 3, styles: { halign: 'right', fontStyle: 'bold' } }, { content: formatCurrency(claimData.supplementInvoice.total), styles: { halign: 'right', fontStyle: 'bold' } }],
-  ];
-
-  doc.setFontSize(11);
-  doc.setFont(undefined, 'bold');
-  doc.setTextColor(...HEADER_COLOR);
-  doc.text('Final Invoice (with Supplement)', PAGE_MARGIN + tableWidth + 10, 100);
-
-  doc.autoTable({
-    ...baseTableConfig,
-    head: [columns],
-    body: supplementBody,
-    foot: supplementFoot,
-    margin: { left: PAGE_MARGIN + tableWidth + 10, right: PAGE_MARGIN },
-    didParseCell: (data: any) => {
-      if (data.section === 'body') {
-        if (data.column.index === 1) data.cell.styles.halign = 'center'; // Qty
-        if (data.column.index === 2 || data.column.index === 3) data.cell.styles.halign = 'right'; // Price & Total
-
-        const item = claimData.supplementInvoice.lineItems[data.row.index];
-        if (item?.isNew) {
-          data.cell.styles.fillColor = [220, 252, 231]; // green-100
-        } else if (item?.isChanged) {
-          data.cell.styles.fillColor = [254, 249, 195]; // yellow-100
-        }
-      }
-    },
+  // Create CSV content
+  let csvContent = '';
+  
+  // Header information
+  csvContent += 'SupplementGuard Claim Analysis Report\n';
+  csvContent += `Claim ID,${claimData.id}\n`;
+  csvContent += `Fraud Score,${claimData.fraudScore}\n`;
+  csvContent += `Generated,${new Date().toLocaleDateString()}\n\n`;
+  
+  // Fraud reasons
+  csvContent += 'Fraud Risk Factors\n';
+  claimData.fraudReasons.forEach((reason, index) => {
+    csvContent += `${index + 1},"${reason.replace(/"/g, '""')}"\n`;
   });
-
-  // --- Final Touches ---
-  drawPageFooter();
-  doc.save(`Claim-Report-${claimData.id}.pdf`);
+  csvContent += '\n';
+  
+  // Original invoice
+  csvContent += 'Original Invoice\n';
+  csvContent += 'Description,Quantity,Unit Price,Total\n';
+  claimData.originalInvoice.lineItems.forEach(item => {
+    csvContent += `"${item.description.replace(/"/g, '""')}",${item.quantity},${formatCurrency(item.price)},${formatCurrency(item.total)}\n`;
+  });
+  csvContent += `Subtotal,,,${formatCurrency(claimData.originalInvoice.subtotal)}\n`;
+  csvContent += `Tax,,,${formatCurrency(claimData.originalInvoice.tax)}\n`;
+  csvContent += `Total,,,${formatCurrency(claimData.originalInvoice.total)}\n\n`;
+  
+  // Supplement invoice
+  csvContent += 'Supplement Invoice\n';
+  csvContent += 'Description,Quantity,Unit Price,Total,Status\n';
+  claimData.supplementInvoice.lineItems.forEach(item => {
+    const status = item.isNew ? 'New Item' : item.isChanged ? 'Changed' : 'Unchanged';
+    csvContent += `"${item.description.replace(/"/g, '""')}",${item.quantity},${formatCurrency(item.price)},${formatCurrency(item.total)},"${status}"\n`;
+  });
+  csvContent += `Subtotal,,,,${formatCurrency(claimData.supplementInvoice.subtotal)}\n`;
+  csvContent += `Tax,,,,${formatCurrency(claimData.supplementInvoice.tax)}\n`;
+  csvContent += `Total,,,,${formatCurrency(claimData.supplementInvoice.total)}\n\n`;
+  
+  // Cost difference
+  const difference = claimData.supplementInvoice.total - claimData.originalInvoice.total;
+  csvContent += `Cost Difference,,,,${formatCurrency(difference)}\n\n`;
+  
+  // Summary
+  csvContent += 'AI Analysis Summary\n';
+  const summaryLines = claimData.invoiceSummary.split('\n').filter(line => line.trim() !== '');
+  summaryLines.forEach(line => {
+    const cleanLine = line.replace(/\*\*/g, '').replace(/^- |^\* /, '');
+    csvContent += `"${cleanLine.replace(/"/g, '""')}"\n`;
+  });
+  
+  // Create and download the file
+  const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+  const link = document.createElement('a');
+  const url = URL.createObjectURL(blob);
+  link.setAttribute('href', url);
+  link.setAttribute('download', `Claim-Report-${claimData.id}.csv`);
+  link.style.visibility = 'hidden';
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
 };

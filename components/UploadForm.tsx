@@ -13,6 +13,11 @@ const FileInputArea: React.FC<{
   files: File[];
   onFilesChange: (files: File[]) => void;
 }> = ({ id, title, files, onFilesChange }) => {
+  
+  const handleDeleteFile = (indexToDelete: number) => {
+    const updatedFiles = files.filter((_, index) => index !== indexToDelete);
+    onFilesChange(updatedFiles);
+  };
   const [isDragging, setIsDragging] = useState(false);
 
   const handleDragEnter = (e: React.DragEvent<HTMLLabelElement>) => {
@@ -68,9 +73,21 @@ const FileInputArea: React.FC<{
       {files.length > 0 && (
         <div className="mt-4 space-y-2">
           {files.map((file, index) => (
-            <div key={index} className="flex items-center bg-slate-100 p-2 rounded-md text-sm">
-              <FileIcon />
-              <span className="ml-2 text-slate-700 truncate">{file.name}</span>
+            <div key={index} className="flex items-center justify-between bg-slate-100 p-2 rounded-md text-sm group hover:bg-slate-200 transition-colors">
+              <div className="flex items-center min-w-0 flex-1">
+                <FileIcon />
+                <span className="ml-2 text-slate-700 truncate">{file.name}</span>
+              </div>
+              <button
+                onClick={() => handleDeleteFile(index)}
+                className="ml-2 p-1 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors opacity-0 group-hover:opacity-100"
+                title="Delete file"
+                type="button"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
             </div>
           ))}
         </div>
