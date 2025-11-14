@@ -55,12 +55,12 @@ const claimDataSchema = {
     originalInvoice: invoiceSchema,
     supplementInvoice: invoiceSchema,
     fraudScore: { type: Type.INTEGER, description: "A fraud risk score from 0 (low risk) to 100 (high risk)." },
-    fraudReasons: { 
-        type: Type.ARRAY, 
-        description: "A list of 2-3 strings explaining the key factors that contributed to the fraud score.",
+    fraudReasons: {
+        type: Type.ARRAY,
+        description: "A list of 2-3 simple reasons why this claim might be fake or wrong. Use easy words that anyone can understand.",
         items: { type: Type.STRING }
     },
-    invoiceSummary: { type: Type.STRING, description: "A markdown-formatted summary of changes between the original and supplement invoices (new items, changed items, cost impact)." }
+    invoiceSummary: { type: Type.STRING, description: "A simple summary of what changed between the two bills. Use easy words and short sentences." }
   },
   required: ['id', 'originalInvoice', 'supplementInvoice', 'fraudScore', 'fraudReasons', 'invoiceSummary']
 };
@@ -218,13 +218,16 @@ Follow these instructions precisely:
     *   **Price Gouging:** Are parts priced significantly above market rates?
     *   **Phantom Repairs:** Are repairs listed that weren't actually performed?
 
-5.  **Generate Fraud Score & Justify Score:**
-    *   Based on your assessment, provide a fraud score from 0 (low risk) to 100 (high risk).
-    *   Provide a list of 2-3 concise, human-readable reasons that justify the fraud score based on the automotive analysis.
+5.  **Generate Fraud Score & Explain Why:**
+    *   Give a fraud score from 0 (safe) to 100 (very risky).
+    *   Write 2-3 simple reasons why this claim looks suspicious. Use easy words. Explain like you're talking to someone who doesn't know about cars.
 
-6.  **Summarize Invoice Changes:**
-    *   Create a concise, markdown-formatted summary of the key differences between the invoices.
-    *   Include specific automotive part details and system-level analysis.
+6.  **Explain What Changed:**
+    *   Write a simple summary of what changed between the two bills.
+    *   Use easy words. Explain what parts were added, what costs went up, and why.
+    *   Don't use technical car terms. Say "car part" instead of "OEM component."
+
+IMPORTANT: Write all explanations using simple, easy English. Pretend you're explaining to someone who doesn't speak English as their first language. Use short sentences. Avoid big words.
 
 Return ONLY a single, valid JSON object that adheres to the provided schema. Do not include any other text or markdown formatting.`;
 
