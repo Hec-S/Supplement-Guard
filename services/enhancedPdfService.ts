@@ -75,6 +75,10 @@ export class EnhancedPdfService {
         await this.generateDiscrepancyReportPage(doc, analysis, opts);
       }
       
+      // Add Disclaimer Page
+      doc.addPage();
+      await this.generateDisclaimerPage(doc, opts);
+      
       // Add page numbers and footers
       this.addPageNumbersAndFooters(doc, opts);
       
@@ -410,9 +414,9 @@ export class EnhancedPdfService {
         .slice(0, 10);
 
       if (significantItems.length > 0) {
-        // Line items table headers
-        const itemHeaders = ['Description', 'Type', 'Original', 'Supplement', 'Change', '%'];
-        const itemColWidths = [60, 20, 25, 25, 25, 15];
+        // Line items table headers - Updated to new order
+        const itemHeaders = ['Description', 'Original Price', 'Price Change', 'New Price', 'Status'];
+        const itemColWidths = [70, 30, 30, 30, 20];
         
         this.createTableHeader(doc, itemHeaders, itemColWidths, margin, currentY);
         currentY += 12;
@@ -435,12 +439,11 @@ export class EnhancedPdfService {
           }
 
           const itemRowData = [
-            this.truncateText(item.description, 35),
-            item.changeType.toUpperCase(),
+            this.truncateText(item.description, 40),
             item.originalAmount !== null ? formatCurrency(item.originalAmount) : '-',
+            item.dollarChange !== 0 ? formatCurrency(item.dollarChange) : '-',
             item.supplementAmount !== null ? formatCurrency(item.supplementAmount) : '-',
-            formatCurrency(item.dollarChange),
-            item.percentageChange !== null ? formatPercentage(item.percentageChange) : 'N/A'
+            item.changeType.toUpperCase()
           ];
 
           this.createTableRow(doc, itemRowData, itemColWidths, margin, currentY);
@@ -655,9 +658,9 @@ export class EnhancedPdfService {
     doc.text('Detailed Line Item Comparison', margin, currentY);
     currentY += 15;
 
-    // Table headers
-    const headers = ['Description', 'Category', 'Original', 'Supplement', 'Variance', 'Change %'];
-    const colWidths = [60, 25, 30, 30, 25, 20];
+    // Table headers - Updated to new order
+    const headers = ['Description', 'Original Price', 'Price Change', 'New Price', 'Status'];
+    const colWidths = [70, 30, 30, 30, 20];
     
     this.createTableHeader(doc, headers, colWidths, margin, currentY);
     currentY += 10;
@@ -672,12 +675,12 @@ export class EnhancedPdfService {
       }
 
       const rowData = [
-        this.truncateText(match.supplement.description, 35),
-        match.supplement.category.substring(0, 8),
+        this.truncateText(match.supplement.description, 40),
         formatCurrency(match.original.total),
+        match.supplement.totalVariance !== 0 ? formatCurrency(match.supplement.totalVariance) : '-',
         formatCurrency(match.supplement.total),
-        formatCurrency(match.supplement.totalVariance),
-        formatPercentage(match.supplement.totalChangePercent)
+        match.supplement.totalVariance > 0 ? 'INCREASED' :
+        match.supplement.totalVariance < 0 ? 'DECREASED' : 'UNCHANGED'
       ];
 
       // Color coding based on variance
@@ -725,8 +728,7 @@ export class EnhancedPdfService {
         }
 
         const rowData = [
-          this.truncateText(item.description, 35),
-          item.category.substring(0, 8),
+          this.truncateText(item.description, 40),
           '-',
           formatCurrency(item.total),
           formatCurrency(item.total),
@@ -759,11 +761,10 @@ export class EnhancedPdfService {
         }
 
         const rowData = [
-          this.truncateText(item.description, 35),
-          item.category.substring(0, 8),
+          this.truncateText(item.description, 40),
           formatCurrency(item.total),
-          '-',
           formatCurrency(-item.total),
+          '-',
           'REMOVED'
         ];
 
@@ -1054,6 +1055,68 @@ export class EnhancedPdfService {
 
   private truncateText(text: string, maxLength: number): string {
     return text.length > maxLength ? text.substring(0, maxLength - 3) + '...' : text;
+  }
+
+  /**
+   * Generates disclaimer page
+   */
+  private async generateDisclaimerPage(
+    doc: jsPDF,
+    options: PdfExportOptions
+  ): Promise<void> {
+    const pageWidth = doc.internal.pageSize.getWidth();
+    const pageHeight = doc.internal.pageSize.getHeight();
+    const margin = 25;
+    const safeZone = 30;
+    let currentY = safeZone;
+    
+    // Helper function to check page space and add new page if needed
+    const checkPageSpace = (requiredHeight: number) => {
+      const availableSpace = pageHeight - safeZone - currentY;
+      if (availableSpace < requiredHeight) {
+        doc.addPage();
+        currentY = safeZone;
+      }
+    };
+    
+    // Disclaimer title
+    doc.setFontSize(16);
+    doc.setFont(undefined, 'bold');
+    doc.setTextColor(139, 0, 0); // Dark red
+    doc.text('IMPORTANT DISCLAIMER', margin, currentY);
+    currentY += 15;
+    
+    // Disclaimer content
+    const disclaimerText = `ALL ESTIMATE AND SUPPLEMENT PAYMENTS WILL BE ISSUED TO THE VEHICLE OWNER.
+
+The repair contract exists solely between the vehicle owner and the repair facility. The insurance company is not involved in this agreement and does not assume responsibility for repair quality, timelines, or costs. All repair-related disputes must be handled directly with the repair facility.
+
+Please note: Any misrepresentation of repairs, labor, parts, or supplements—including unnecessary operations or inflated charges—may constitute insurance fraud and will result in further review or investigation.`;
+    
+    // Draw disclaimer box with border
+    const disclaimerStartY = currentY - 5;
+    
+    // Split disclaimer into paragraphs for better formatting
+    doc.setFontSize(11);
+    doc.setFont(undefined, 'normal');
+    doc.setTextColor(51, 51, 51);
+    
+    const disclaimerParagraphs = disclaimerText.split('\n\n');
+    disclaimerParagraphs.forEach((paragraph, index) => {
+      if (index > 0) currentY += 8;
+      
+      const lines = doc.splitTextToSize(paragraph, pageWidth - 2 * margin - 10);
+      checkPageSpace(lines.length * 5 + 5);
+      doc.text(lines, margin + 5, currentY);
+      currentY += lines.length * 5;
+    });
+    
+    // Draw border around disclaimer
+    const disclaimerEndY = currentY + 5;
+    const disclaimerHeight = disclaimerEndY - disclaimerStartY;
+    doc.setDrawColor(200, 200, 200);
+    doc.setLineWidth(0.5);
+    doc.rect(margin - 5, disclaimerStartY, pageWidth - 2 * margin + 10, disclaimerHeight, 'S');
   }
 }
 

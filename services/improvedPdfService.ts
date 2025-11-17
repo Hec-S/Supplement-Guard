@@ -289,9 +289,9 @@ class ImprovedPdfGenerator {
       });
       
       this.currentY += 10;
-      
-      // AI Analysis Summary
-      this.addSectionHeader('AI Analysis Summary');
+      // Analysis Summary
+      this.addSectionHeader('Analysis Summary');
+
       
       const summaryLines = claimData.invoiceSummary.split('\n').filter(line => line.trim() !== '');
       summaryLines.forEach(line => {
@@ -381,6 +381,50 @@ class ImprovedPdfGenerator {
       
       this.createTable(supplementHeaders, supplementData, [70, 15, 25, 25, 25]);
       
+      // Disclaimer Section
+      this.currentY += 10;
+      this.checkPageSpace(100);
+      
+      // Disclaimer title
+      this.doc.setTextColor(139, 0, 0); // Dark red color for title
+      this.addText('IMPORTANT DISCLAIMER', this.config.safeZone, this.currentY, this.config.maxContentWidth, {
+        fontSize: 14,
+        fontStyle: 'bold',
+        color: [139, 0, 0]
+      });
+      
+      this.currentY += 8;
+      
+      // Disclaimer content
+      const disclaimerText = `ALL ESTIMATE AND SUPPLEMENT PAYMENTS WILL BE ISSUED TO THE VEHICLE OWNER.
+
+The repair contract exists solely between the vehicle owner and the repair facility. The insurance company is not involved in this agreement and does not assume responsibility for repair quality, timelines, or costs. All repair-related disputes must be handled directly with the repair facility.
+
+Please note: Any misrepresentation of repairs, labor, parts, or supplements—including unnecessary operations or inflated charges—may constitute insurance fraud and will result in further review or investigation.`;
+      
+      // Draw disclaimer box with border
+      const disclaimerStartY = this.currentY - 10;
+      
+      // Split disclaimer into paragraphs for better formatting
+      const disclaimerParagraphs = disclaimerText.split('\n\n');
+      disclaimerParagraphs.forEach((paragraph, index) => {
+        if (index > 0) this.currentY += 5;
+        
+        this.addText(paragraph, this.config.safeZone + 5, this.currentY, this.config.maxContentWidth - 10, {
+          fontSize: 10,
+          color: [51, 51, 51]
+        });
+      });
+      
+      // Draw border around disclaimer
+      const disclaimerEndY = this.currentY + 5;
+      const disclaimerHeight = disclaimerEndY - disclaimerStartY;
+      this.doc.setDrawColor(200, 200, 200);
+      this.doc.setLineWidth(0.5);
+      this.doc.rect(this.config.safeZone - 5, disclaimerStartY, this.config.maxContentWidth + 10, disclaimerHeight, 'S');
+      
+      this.currentY = disclaimerEndY + 10;
+      
       // Add page numbers and footers
       this.addPageNumbersAndFooters();
       
@@ -453,7 +497,7 @@ export const generateEnhancedCsvReport = (claimData: ClaimData) => {
   csvContent += `Cost Difference,,,,${formatCurrency(difference)}\n\n`;
   
   // Summary
-  csvContent += 'AI Analysis Summary\n';
+  csvContent += 'Analysis Summary\n';
   const summaryLines = claimData.invoiceSummary.split('\n').filter(line => line.trim() !== '');
   summaryLines.forEach(line => {
     const cleanLine = line.replace(/\*\*/g, '').replace(/^- |^\* /, '');

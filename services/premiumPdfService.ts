@@ -465,8 +465,8 @@ export class PremiumPdfGenerator {
       });
     }
 
-    // AI Analysis Summary
-    this.addSection('AI Analysis Summary', () => {
+    // Analysis Summary
+    this.addSection('Analysis Summary', () => {
       const summary = claimData.aiAnalysis?.summary || claimData.invoiceSummary || 'Analysis completed successfully.';
       this.addStyledText(summary, {
         fontSize: TYPOGRAPHY.sizes.body,
@@ -525,6 +525,47 @@ export class PremiumPdfGenerator {
         maxWidth: this.contentWidth - 10
       });
     }
+
+    // Disclaimer Section
+    this.currentY += LAYOUT.spacing.section;
+    this.checkPageSpace(100);
+    
+    // Disclaimer title
+    this.addStyledText('IMPORTANT DISCLAIMER', {
+      fontSize: TYPOGRAPHY.sizes.subheading,
+      fontWeight: TYPOGRAPHY.weights.bold,
+      color: '#8B0000' // Dark red
+    });
+    
+    this.currentY += LAYOUT.spacing.paragraph;
+    
+    // Disclaimer content
+    const disclaimerText = `ALL ESTIMATE AND SUPPLEMENT PAYMENTS WILL BE ISSUED TO THE VEHICLE OWNER.
+
+The repair contract exists solely between the vehicle owner and the repair facility. The insurance company is not involved in this agreement and does not assume responsibility for repair quality, timelines, or costs. All repair-related disputes must be handled directly with the repair facility.
+
+Please note: Any misrepresentation of repairs, labor, parts, or supplements—including unnecessary operations or inflated charges—may constitute insurance fraud and will result in further review or investigation.`;
+    
+    // Draw disclaimer box with border
+    const disclaimerStartY = this.currentY - LAYOUT.spacing.paragraph;
+    
+    // Split disclaimer into paragraphs for better formatting
+    const disclaimerParagraphs = disclaimerText.split('\n\n');
+    disclaimerParagraphs.forEach((paragraph, index) => {
+      if (index > 0) this.currentY += LAYOUT.spacing.line;
+      
+      this.addStyledText(paragraph, {
+        fontSize: TYPOGRAPHY.sizes.body,
+        color: COLORS.textPrimary
+      });
+    });
+    
+    // Draw border around disclaimer
+    const disclaimerEndY = this.currentY + LAYOUT.spacing.line;
+    const disclaimerHeight = disclaimerEndY - disclaimerStartY;
+    this.doc.setDrawColor(...this.hexToRgb(COLORS.textMuted));
+    this.doc.setLineWidth(0.5);
+    this.doc.roundedRect(LAYOUT.margins.left - 5, disclaimerStartY, this.contentWidth + 10, disclaimerHeight, 2, 2, 'S');
   }
 
   public save(filename: string): void {

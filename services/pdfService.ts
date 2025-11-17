@@ -82,9 +82,9 @@ export const generatePdfReport = (claimData: ClaimData, comparisonAnalysis?: Com
 
     currentY += 10;
 
-    // AI Summary
+    // Analysis Summary
     checkPageSpace(60);
-    addSafeText('AI Analysis Summary:', safeZone, maxContentWidth, 12, 'bold');
+    addSafeText('Analysis Summary:', safeZone, maxContentWidth, 12, 'bold');
     currentY += 3;
 
     const summaryLines = claimData.invoiceSummary.split('\n').filter(line => line.trim() !== '');
@@ -141,14 +141,24 @@ export const generatePdfReport = (claimData: ClaimData, comparisonAnalysis?: Com
     currentY += 5;
 
     // Create table for supplement invoice with color coding
-    const supplementHeaders = ['Description', 'Qty', 'Price', 'Total', 'Status'];
-    const supplementData = claimData.supplementInvoice.lineItems.map(item => [
-      item.description,
-      item.quantity.toString(),
-      formatCurrency(item.price),
-      formatCurrency(item.total),
-      item.isNew ? 'NEW' : item.isChanged ? 'CHANGED' : 'SAME'
-    ]);
+    const supplementHeaders = ['Description', 'Original Price', 'Price Change', 'New Price', 'Status'];
+    const supplementData = claimData.supplementInvoice.lineItems.map(item => {
+      // Find the corresponding original item to get original price
+      const originalItem = claimData.originalInvoice.lineItems.find(
+        orig => orig.description.toLowerCase().trim() === item.description.toLowerCase().trim()
+      );
+      
+      const originalTotal = originalItem ? originalItem.total : 0;
+      const priceChange = item.total - originalTotal;
+      
+      return [
+        item.description,
+        originalItem ? formatCurrency(originalTotal) : '-',
+        priceChange !== 0 ? formatCurrency(priceChange) : '-',
+        formatCurrency(item.total),
+        item.isNew ? 'NEW' : item.isChanged ? 'CHANGED' : 'SAME'
+      ];
+    });
     
     // Add totals rows
     supplementData.push([
@@ -183,9 +193,60 @@ export const generatePdfReport = (claimData: ClaimData, comparisonAnalysis?: Com
       difference > 0 ? 'INCREASE' : 'DECREASE'
     ]);
     
-    createImprovedTableWithColors(doc, supplementHeaders, supplementData, safeZone, currentY, maxContentWidth, claimData.supplementInvoice.lineItems);
+    createImprovedTableWithColors(doc, supplementHeaders, supplementData, safeZone, currentY, maxContentWidth, claimData.supplementInvoice.lineItems, claimData.originalInvoice.lineItems);
     currentY += (supplementData.length + 1) * 8 + 10;
 
+    // Disclaimer Section
+    currentY += 10;
+    checkPageSpace(100);
+    
+    // Disclaimer box with border
+    doc.setDrawColor(200, 200, 200);
+    doc.setFillColor(250, 250, 250);
+    
+    // Calculate disclaimer height
+    const disclaimerTitle = 'IMPORTANT DISCLAIMER';
+    const disclaimerText = `ALL ESTIMATE AND SUPPLEMENT PAYMENTS WILL BE ISSUED TO THE VEHICLE OWNER.
+
+The repair contract exists solely between the vehicle owner and the repair facility. The insurance company is not involved in this agreement and does not assume responsibility for repair quality, timelines, or costs. All repair-related disputes must be handled directly with the repair facility.
+
+Please note: Any misrepresentation of repairs, labor, parts, or supplements—including unnecessary operations or inflated charges—may constitute insurance fraud and will result in further review or investigation.`;
+    
+    // Draw disclaimer background
+    const disclaimerStartY = currentY;
+    
+    // Add disclaimer title
+    doc.setTextColor(139, 0, 0); // Dark red color for title
+    doc.setFont(undefined, 'bold');
+    addSafeText(disclaimerTitle, safeZone, maxContentWidth, 14, 'bold');
+    currentY += 8;
+    
+    // Add disclaimer content
+    doc.setTextColor(51, 51, 51); // Dark gray for text
+    doc.setFont(undefined, 'normal');
+    doc.setFontSize(10);
+    
+    // Split disclaimer into paragraphs for better formatting
+    const disclaimerParagraphs = disclaimerText.split('\n\n');
+    disclaimerParagraphs.forEach((paragraph, index) => {
+      const lines = doc.splitTextToSize(paragraph, maxContentWidth - 10);
+      checkPageSpace(lines.length * 4 + 5);
+      
+      // Add some padding for readability
+      if (index > 0) currentY += 5;
+      
+      doc.text(lines, safeZone + 5, currentY);
+      currentY += lines.length * 4;
+    });
+    
+    // Draw border around disclaimer
+    const disclaimerEndY = currentY + 5;
+    const disclaimerHeight = disclaimerEndY - disclaimerStartY;
+    doc.setDrawColor(200, 200, 200);
+    doc.setLineWidth(0.5);
+    doc.rect(safeZone - 5, disclaimerStartY - 5, maxContentWidth + 10, disclaimerHeight, 'S');
+    
+    currentY = disclaimerEndY + 10;
 
     // Helper function to create improved tables with color coding
     function createImprovedTableWithColors(
@@ -195,7 +256,8 @@ export const generatePdfReport = (claimData: ClaimData, comparisonAnalysis?: Com
       x: number,
       y: number,
       width: number,
-      lineItems: any[]
+      lineItems: any[],
+      originalLineItems?: any[]
     ): void {
       const colWidth = width / headers.length;
       let tableY = y;
@@ -271,8 +333,9 @@ export const generatePdfReport = (claimData: ClaimData, comparisonAnalysis?: Com
         wrappedCells.forEach((cellLines, colIndex) => {
           const cellX = x + colIndex * colWidth;
           
-          // Apply color coding for status column (last column)
+          // Apply color coding for status column (last column) and price change column
           if (colIndex === headers.length - 1 && rowIndex < lineItems.length) {
+            // Status column
             const item = lineItems[rowIndex];
             if (item.isNew) {
               doc.setTextColor(255, 0, 0); // Red for NEW
@@ -280,6 +343,18 @@ export const generatePdfReport = (claimData: ClaimData, comparisonAnalysis?: Com
               doc.setTextColor(255, 140, 0); // Orange for CHANGED
             } else {
               doc.setTextColor(51, 51, 51); // Default color for SAME
+            }
+          } else if (colIndex === 2 && rowIndex < lineItems.length) {
+            // Price change column - color based on increase/decrease
+            const cellValue = row[colIndex];
+            if (cellValue && cellValue !== '-') {
+              if (cellValue.includes('+') || !cellValue.includes('-')) {
+                doc.setTextColor(255, 0, 0); // Red for increases
+              } else {
+                doc.setTextColor(0, 128, 0); // Green for decreases
+              }
+            } else {
+              doc.setTextColor(51, 51, 51); // Default color
             }
           } else {
             doc.setTextColor(51, 51, 51); // Default color for other columns
@@ -451,7 +526,7 @@ export const generateCsvReport = (claimData: ClaimData) => {
   csvContent += `Cost Difference,,,,${formatCurrency(difference)}\n\n`;
   
   // Summary
-  csvContent += 'AI Analysis Summary\n';
+  csvContent += 'Analysis Summary\n';
   const summaryLines = claimData.invoiceSummary.split('\n').filter(line => line.trim() !== '');
   summaryLines.forEach(line => {
     const cleanLine = line.replace(/\*\*/g, '').replace(/^- |^\* /, '');

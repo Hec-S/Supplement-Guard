@@ -52,12 +52,16 @@ export class ChangeFocusedPdfService {
     const doc = new jsPDF('p', 'mm', 'a4');
     
     try {
-      // Page 1: AI Analysis Summary
+      // Page 1: Analysis Summary
       await this.generateAIAnalysisPage(doc, analysis, claimData, opts);
       
       // Page 2+: Detailed Change Analysis
       doc.addPage();
       await this.generateDetailedChangesPage(doc, analysis, opts);
+      
+      // Add Disclaimer Page
+      doc.addPage();
+      await this.generateDisclaimerPage(doc, opts);
       
       // Add page numbers and footers
       this.addPageNumbersAndFooters(doc, opts);
@@ -541,6 +545,68 @@ export class ChangeFocusedPdfService {
     } else {
       return 'OTHER';
     }
+  }
+
+  /**
+   * Generates disclaimer page
+   */
+  private async generateDisclaimerPage(
+    doc: jsPDF,
+    options: ChangeFocusedPdfOptions
+  ): Promise<void> {
+    const pageWidth = doc.internal.pageSize.getWidth();
+    const pageHeight = doc.internal.pageSize.getHeight();
+    const margin = 20;
+    const safeZone = 25;
+    let currentY = safeZone;
+    
+    // Helper function to check page space and add new page if needed
+    const checkPageSpace = (requiredHeight: number) => {
+      const availableSpace = pageHeight - safeZone - currentY;
+      if (availableSpace < requiredHeight) {
+        doc.addPage();
+        currentY = safeZone;
+      }
+    };
+    
+    // Disclaimer title
+    doc.setFontSize(16);
+    doc.setFont(undefined, 'bold');
+    doc.setTextColor(139, 0, 0); // Dark red
+    doc.text('IMPORTANT DISCLAIMER', margin, currentY);
+    currentY += 15;
+    
+    // Disclaimer content
+    const disclaimerText = `ALL ESTIMATE AND SUPPLEMENT PAYMENTS WILL BE ISSUED TO THE VEHICLE OWNER.
+
+The repair contract exists solely between the vehicle owner and the repair facility. The insurance company is not involved in this agreement and does not assume responsibility for repair quality, timelines, or costs. All repair-related disputes must be handled directly with the repair facility.
+
+Please note: Any misrepresentation of repairs, labor, parts, or supplements—including unnecessary operations or inflated charges—may constitute insurance fraud and will result in further review or investigation.`;
+    
+    // Draw disclaimer box with border
+    const disclaimerStartY = currentY - 5;
+    
+    // Split disclaimer into paragraphs for better formatting
+    doc.setFontSize(11);
+    doc.setFont(undefined, 'normal');
+    doc.setTextColor(51, 51, 51);
+    
+    const disclaimerParagraphs = disclaimerText.split('\n\n');
+    disclaimerParagraphs.forEach((paragraph, index) => {
+      if (index > 0) currentY += 8;
+      
+      const lines = doc.splitTextToSize(paragraph, pageWidth - 2 * margin - 10);
+      checkPageSpace(lines.length * 5 + 5);
+      doc.text(lines, margin + 5, currentY);
+      currentY += lines.length * 5;
+    });
+    
+    // Draw border around disclaimer
+    const disclaimerEndY = currentY + 5;
+    const disclaimerHeight = disclaimerEndY - disclaimerStartY;
+    doc.setDrawColor(200, 200, 200);
+    doc.setLineWidth(0.5);
+    doc.rect(margin - 5, disclaimerStartY, pageWidth - 2 * margin + 10, disclaimerHeight, 'S');
   }
 
   private generateAIInsights(analysis: ComparisonAnalysis): string[] {
