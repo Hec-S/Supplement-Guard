@@ -491,7 +491,25 @@ export class PremiumPdfGenerator {
 
     // Supplement Invoice Table with Color Coding
     if (claimData.supplementInvoice && claimData.supplementInvoice.lineItems.length > 0) {
-      this.addEnhancedTable('Supplement Invoice', claimData.supplementInvoice.lineItems, [
+      // Sort supplement items by status: NEW first, then CHANGED, then SAME
+      const sortedSupplementItems = [...claimData.supplementInvoice.lineItems].sort((a, b) => {
+        // Define status priority: NEW = 1, CHANGED = 2, SAME = 3
+        const getStatusPriority = (item: any) => {
+          if (item.isNew) return 1;
+          if (item.isChanged) return 2;
+          return 3;
+        };
+        
+        return getStatusPriority(a) - getStatusPriority(b);
+      });
+      
+      // Add status property to each item for the table
+      const itemsWithStatus = sortedSupplementItems.map(item => ({
+        ...item,
+        status: item.isNew ? 'NEW' : item.isChanged ? 'CHANGED' : 'SAME'
+      }));
+      
+      this.addEnhancedTable('Supplement Invoice', itemsWithStatus, [
         { header: 'Description', dataKey: 'description', width: 70 },
         { header: 'Qty', dataKey: 'quantity', width: 15 },
         { header: 'Price', dataKey: 'price', width: 25 },

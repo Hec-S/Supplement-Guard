@@ -140,7 +140,17 @@ const EnhancedComparisonTable: React.FC<{
           
           <div className="max-h-96 overflow-y-auto">
             <div className="space-y-2 p-4">
-              {comparisons.map((comparison) => (
+              {/* Sort comparisons by type: new first, then changed, then unchanged */}
+              {[...comparisons].sort((a, b) => {
+                // Define type priority: new = 1, changed = 2, unchanged/removed = 3
+                const getTypePriority = (comp: LineItemComparison) => {
+                  if (comp.type === 'new') return 1;
+                  if (comp.type === 'changed') return 2;
+                  return 3;
+                };
+                
+                return getTypePriority(a) - getTypePriority(b);
+              }).map((comparison) => (
                 <div key={comparison.id} className="group hover:bg-slate-50 rounded-lg p-4 border border-transparent hover:border-slate-200 transition-all">
                   <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
                     {/* Item Details */}
@@ -255,49 +265,68 @@ const EnhancedComparisonTable: React.FC<{
               <thead className="text-xs text-slate-700 uppercase bg-slate-100 sticky top-0">
                 <tr>
                   <th className="px-4 py-3 text-left">Description</th>
-                  <th className="px-4 py-3 text-center">Qty</th>
-                  <th className="px-4 py-3 text-right">Price</th>
-                  <th className="px-4 py-3 text-right">Total</th>
+                  <th className="px-4 py-3 text-right">Original Price</th>
+                  <th className="px-4 py-3 text-right">Price Change</th>
+                  <th className="px-4 py-3 text-right">New Price</th>
+                  <th className="px-4 py-3 text-center">Status</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-200">
-                {supplementInvoice.lineItems.map((item) => {
+                {/* Sort supplement items by status: NEW first, then CHANGED, then SAME */}
+                {[...supplementInvoice.lineItems].sort((a, b) => {
+                  // Define status priority: NEW = 1, CHANGED = 2, SAME = 3
+                  const getStatusPriority = (item: any) => {
+                    if (item.isNew) return 1;
+                    if (item.isChanged) return 2;
+                    return 3;
+                  };
+                  
+                  return getStatusPriority(a) - getStatusPriority(b);
+                }).map((item) => {
                   const comparison = comparisons.find(c => c.supplement?.id === item.id);
                   const rowClass = comparison?.type === 'new' ? 'bg-blue-50 hover:bg-blue-100' :
                                   comparison?.type === 'changed' ? 'bg-orange-50 hover:bg-orange-100' :
                                   'hover:bg-slate-50';
                   
                   // Safe access to variance values with fallbacks
-                  const quantityVariance = comparison?.quantityVariance ?? 0;
-                  const priceVariance = comparison?.priceVariance ?? 0;
                   const totalVariance = comparison?.totalVariance ?? 0;
+                  const originalTotal = comparison?.original?.total ?? 0;
+                  
+                  // Determine status label
+                  let statusLabel = 'UNCHANGED';
+                  let statusColor = 'text-slate-600';
+                  if (comparison?.type === 'new') {
+                    statusLabel = 'NEW';
+                    statusColor = 'text-blue-600';
+                  } else if (comparison?.type === 'changed') {
+                    statusLabel = 'CHANGED';
+                    statusColor = 'text-orange-600';
+                  }
                   
                   return (
                     <tr key={item.id} className={rowClass}>
                       <td className="px-4 py-3 font-medium text-slate-900">
-                        <div className="flex items-center gap-2">
-                          {comparison?.type === 'new' && <span className="text-blue-600 font-bold text-xs">NEW</span>}
-                          {comparison?.type === 'changed' && <span className="text-orange-600 font-bold text-xs">CHANGED</span>}
-                          <span>{item.description}</span>
-                        </div>
-                      </td>
-                      <td className="px-4 py-3 text-center">
-                        {item.quantity}
-                        {quantityVariance !== 0 && (
-                          <ChangeIndicator value={quantityVariance} isCurrency={false} />
-                        )}
+                        {item.description}
                       </td>
                       <td className="px-4 py-3 text-right">
-                        {formatCurrency(item.price)}
-                        {priceVariance !== 0 && (
-                          <ChangeIndicator value={priceVariance} isCurrency={true} />
+                        {comparison?.type === 'new' ? '-' : formatCurrency(originalTotal)}
+                      </td>
+                      <td className="px-4 py-3 text-right">
+                        {totalVariance !== 0 ? (
+                          <span className={totalVariance > 0 ? 'text-red-600 font-semibold' : 'text-green-600 font-semibold'}>
+                            {totalVariance > 0 ? '+' : ''}{formatCurrency(totalVariance)}
+                          </span>
+                        ) : (
+                          <span className="text-slate-400">-</span>
                         )}
                       </td>
                       <td className="px-4 py-3 text-right font-semibold">
                         {formatCurrency(item.total)}
-                        {totalVariance !== 0 && (
-                          <ChangeIndicator value={totalVariance} isCurrency={true} />
-                        )}
+                      </td>
+                      <td className="px-4 py-3 text-center">
+                        <span className={`font-bold text-xs ${statusColor}`}>
+                          {statusLabel}
+                        </span>
                       </td>
                     </tr>
                   );
@@ -559,7 +588,7 @@ const InvoiceViewer: React.FC<InvoiceViewerProps> = ({ originalInvoice, suppleme
 
       {/* AI Summary Section */}
       <div className="p-6 border-t border-slate-200">
-        <h4 className="text-lg font-semibold text-slate-700 mb-3">AI Analysis Summary</h4>
+        <h4 className="text-lg font-semibold text-slate-700 mb-3">Analysis Summary</h4>
         <div className="bg-slate-50 border border-slate-200 rounded-lg p-4 prose prose-sm max-w-none">
           {summary.split('\n').map((line, index) => {
             const trimmedLine = line.trim();

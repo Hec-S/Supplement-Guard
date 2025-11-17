@@ -337,8 +337,20 @@ class ImprovedPdfGenerator {
       // Supplement Invoice Section
       this.addSectionHeader('Supplement Invoice');
       
+      // Sort supplement items by status: NEW first, then CHANGED, then SAME
+      const sortedSupplementItems = [...claimData.supplementInvoice.lineItems].sort((a, b) => {
+        // Define status priority: NEW = 1, CHANGED = 2, SAME = 3
+        const getStatusPriority = (item: any) => {
+          if (item.isNew) return 1;
+          if (item.isChanged) return 2;
+          return 3;
+        };
+        
+        return getStatusPriority(a) - getStatusPriority(b);
+      });
+      
       const supplementHeaders = ['Description', 'Qty', 'Price', 'Total', 'Status'];
-      const supplementData = claimData.supplementInvoice.lineItems.map(item => [
+      const supplementData = sortedSupplementItems.map(item => [
         item.description,
         item.quantity.toString(),
         formatCurrency(item.price),

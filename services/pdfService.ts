@@ -140,9 +140,21 @@ export const generatePdfReport = (claimData: ClaimData, comparisonAnalysis?: Com
     addSafeText('Supplement Invoice', safeZone, maxContentWidth, 16, 'bold');
     currentY += 5;
 
+    // Sort supplement items by status: NEW first, then CHANGED, then SAME
+    const sortedSupplementItems = [...claimData.supplementInvoice.lineItems].sort((a, b) => {
+      // Define status priority: NEW = 1, CHANGED = 2, SAME = 3
+      const getStatusPriority = (item: any) => {
+        if (item.isNew) return 1;
+        if (item.isChanged) return 2;
+        return 3;
+      };
+      
+      return getStatusPriority(a) - getStatusPriority(b);
+    });
+
     // Create table for supplement invoice with color coding
     const supplementHeaders = ['Description', 'Original Price', 'Price Change', 'New Price', 'Status'];
-    const supplementData = claimData.supplementInvoice.lineItems.map(item => {
+    const supplementData = sortedSupplementItems.map(item => {
       // Find the corresponding original item to get original price
       const originalItem = claimData.originalInvoice.lineItems.find(
         orig => orig.description.toLowerCase().trim() === item.description.toLowerCase().trim()
@@ -193,7 +205,7 @@ export const generatePdfReport = (claimData: ClaimData, comparisonAnalysis?: Com
       difference > 0 ? 'INCREASE' : 'DECREASE'
     ]);
     
-    createImprovedTableWithColors(doc, supplementHeaders, supplementData, safeZone, currentY, maxContentWidth, claimData.supplementInvoice.lineItems, claimData.originalInvoice.lineItems);
+    createImprovedTableWithColors(doc, supplementHeaders, supplementData, safeZone, currentY, maxContentWidth, sortedSupplementItems, claimData.originalInvoice.lineItems);
     currentY += (supplementData.length + 1) * 8 + 10;
 
     // Disclaimer Section
