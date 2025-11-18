@@ -435,11 +435,13 @@ export const generatePdfReport = (claimData: ClaimData, comparisonAnalysis?: Com
       });
     
     if (warrantyItems.length > 0) {
-      // Section title
-      doc.setTextColor(51, 51, 51);
+      // Section title - RED COLOR
+      doc.setTextColor(255, 0, 0); // Red color for title
       doc.setFont(undefined, 'bold');
-      addSafeText('NEEDS WARRANTY', safeZone, maxContentWidth, 16, 'bold');
-      currentY += 8;
+      doc.setFontSize(16);
+      const titleLines = doc.splitTextToSize('NEEDS WARRANTY', maxContentWidth);
+      doc.text(titleLines, safeZone, currentY);
+      currentY += titleLines.length * 6 + 8;
       
       // Warranty notice
       doc.setTextColor(102, 102, 102);
@@ -450,8 +452,8 @@ export const generatePdfReport = (claimData: ClaimData, comparisonAnalysis?: Com
       doc.text(noticeLines, safeZone, currentY);
       currentY += noticeLines.length * 4 + 8;
       
-      // Create warranty items table
-      const warrantyHeaders = ['Description', 'Type', 'Original Price', 'New Price', 'Change', 'Warranty Status'];
+      // Create warranty items table - REMOVED "Warranty Status" column
+      const warrantyHeaders = ['Description', 'Type', 'Original Price', 'New Price', 'Change'];
       const warrantyData = warrantyItems.map(item => {
         // Find the corresponding original item to get price comparison
         const originalItem = claimData.originalInvoice.lineItems.find(
@@ -473,8 +475,7 @@ export const generatePdfReport = (claimData: ClaimData, comparisonAnalysis?: Com
           workType,
           originalItem ? formatCurrency(originalTotal) : '-',
           formatCurrency(item.total),
-          priceChange !== 0 ? formatCurrency(priceChange) : '-',
-          'NEEDS WARRANTY'
+          priceChange !== 0 ? formatCurrency(priceChange) : '-'
         ];
       });
       
@@ -492,7 +493,7 @@ export const generatePdfReport = (claimData: ClaimData, comparisonAnalysis?: Com
       y: number,
       width: number
     ): void {
-      const colWidths = [60, 25, 25, 25, 25, 30]; // Adjusted column widths for 6 columns
+      const colWidths = [70, 30, 30, 30, 30]; // Adjusted column widths for 5 columns (removed Warranty Status)
       let tableY = y;
       
       // Check if table fits on current page
@@ -570,11 +571,7 @@ export const generatePdfReport = (claimData: ClaimData, comparisonAnalysis?: Com
         currentX = x;
         wrappedCells.forEach((cellLines, colIndex) => {
           // Set colors based on column
-          if (colIndex === 5) {
-            // "NEEDS WARRANTY" column - RED
-            doc.setTextColor(255, 0, 0); // Red color
-            doc.setFont(undefined, 'bold');
-          } else if (colIndex === 1) {
+          if (colIndex === 1) {
             // Work type column - color coded
             const workType = row[1];
             if (workType === 'REPLACEMENT') {
