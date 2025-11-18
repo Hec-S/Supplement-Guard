@@ -212,16 +212,13 @@ export const generatePdfReport = (claimData: ClaimData, comparisonAnalysis?: Com
     currentY += 10;
     checkPageSpace(80);
     
-    // Filter items that need warranty (contain "Repr", "Repl", or "New" in description)
-    const warrantyItems = [...claimData.originalInvoice.lineItems, ...claimData.supplementInvoice.lineItems]
+    // Filter items from SUPPLEMENT INVOICE ONLY that need warranty (contain "Rpr" or "Repl" in description)
+    const warrantyItems = claimData.supplementInvoice.lineItems
       .filter(item => {
-        const desc = item.description.toLowerCase();
-        return desc.includes('repr') || desc.includes('repl') || desc.includes('new');
-      })
-      // Remove duplicates based on description
-      .filter((item, index, self) =>
-        index === self.findIndex(i => i.description.toLowerCase() === item.description.toLowerCase())
-      );
+        const desc = item.description;
+        // Check for "Rpr" or "Repl" (case-sensitive to match actual abbreviations)
+        return desc.includes('Rpr') || desc.includes('Repl');
+      });
     
     if (warrantyItems.length > 0) {
       // Section title
@@ -234,26 +231,35 @@ export const generatePdfReport = (claimData: ClaimData, comparisonAnalysis?: Com
       doc.setTextColor(102, 102, 102);
       doc.setFont(undefined, 'normal');
       doc.setFontSize(10);
-      const warrantyNotice = 'The following items require warranty coverage as they involve repairs, replacements, or new parts:';
+      const warrantyNotice = 'The following supplement items require warranty coverage as they involve repairs or replacements:';
       const noticeLines = doc.splitTextToSize(warrantyNotice, maxContentWidth);
       doc.text(noticeLines, safeZone, currentY);
       currentY += noticeLines.length * 4 + 8;
       
       // Create warranty items table
-      const warrantyHeaders = ['Description', 'Type', 'Amount', 'Warranty Status'];
+      const warrantyHeaders = ['Description', 'Type', 'Original Price', 'New Price', 'Change', 'Warranty Status'];
       const warrantyData = warrantyItems.map(item => {
-        // Determine the type of work
-        const desc = item.description.toLowerCase();
+        // Find the corresponding original item to get price comparison
+        const originalItem = claimData.originalInvoice.lineItems.find(
+          orig => orig.description.toLowerCase().trim() === item.description.toLowerCase().trim()
+        );
+        
+        const originalTotal = originalItem ? originalItem.total : 0;
+        const priceChange = item.total - originalTotal;
+        
+        // Determine the type of work based on description
+        const desc = item.description;
         let workType = '';
-        if (desc.includes('repl')) workType = 'REPLACEMENT';
-        else if (desc.includes('repr') || desc.includes('rpr')) workType = 'REPAIR';
-        else if (desc.includes('new')) workType = 'NEW PART';
+        if (desc.includes('Repl')) workType = 'REPLACEMENT';
+        else if (desc.includes('Rpr')) workType = 'REPAIR';
         else workType = 'SERVICE';
         
         return [
           item.description,
           workType,
+          originalItem ? formatCurrency(originalTotal) : '-',
           formatCurrency(item.total),
+          priceChange !== 0 ? formatCurrency(priceChange) : '-',
           'NEEDS WARRANTY'
         ];
       });
@@ -272,7 +278,7 @@ export const generatePdfReport = (claimData: ClaimData, comparisonAnalysis?: Com
       y: number,
       width: number
     ): void {
-      const colWidths = [80, 35, 30, 35]; // Adjusted column widths
+      const colWidths = [60, 25, 25, 25, 25, 30]; // Adjusted column widths for 6 columns
       let tableY = y;
       
       // Check if table fits on current page
@@ -346,26 +352,39 @@ export const generatePdfReport = (claimData: ClaimData, comparisonAnalysis?: Com
           doc.rect(x, tableY, width, maxRowHeight, 'F');
         }
         
-        // Draw cell content with red color for warranty status
+        // Draw cell content with color coding
         currentX = x;
         wrappedCells.forEach((cellLines, colIndex) => {
-          // Set red color for "NEEDS WARRANTY" column
-          if (colIndex === 3) {
+          // Set colors based on column
+          if (colIndex === 5) {
+            // "NEEDS WARRANTY" column - RED
             doc.setTextColor(255, 0, 0); // Red color
             doc.setFont(undefined, 'bold');
           } else if (colIndex === 1) {
-            // Color code the work type
+            // Work type column - color coded
             const workType = row[1];
             if (workType === 'REPLACEMENT') {
               doc.setTextColor(220, 38, 127); // Pink for replacement
             } else if (workType === 'REPAIR') {
               doc.setTextColor(234, 88, 12); // Orange for repair
-            } else if (workType === 'NEW PART') {
-              doc.setTextColor(59, 130, 246); // Blue for new part
             } else {
               doc.setTextColor(51, 51, 51); // Default color
             }
             doc.setFont(undefined, 'bold');
+          } else if (colIndex === 4) {
+            // Price change column - color based on increase/decrease
+            const changeValue = row[4];
+            if (changeValue && changeValue !== '-') {
+              if (changeValue.includes('-')) {
+                doc.setTextColor(0, 128, 0); // Green for decrease
+              } else {
+                doc.setTextColor(255, 0, 0); // Red for increase
+              }
+              doc.setFont(undefined, 'bold');
+            } else {
+              doc.setTextColor(51, 51, 51); // Default color
+              doc.setFont(undefined, 'normal');
+            }
           } else {
             doc.setTextColor(51, 51, 51); // Default color
             doc.setFont(undefined, 'normal');

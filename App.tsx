@@ -9,6 +9,7 @@ import SimplePdfTest from './components/SimplePdfTest';
 import PremiumPdfTest from './components/PremiumPdfTest';
 import HiddenImageDemo from './components/HiddenImageDemo';
 import ChangeFocusedPdfTest from './components/ChangeFocusedPdfTest';
+import TestEnhancedInvoiceViewer from './components/TestEnhancedInvoiceViewer';
 import Spinner from './components/Spinner';
 
 const App: React.FC = () => {
@@ -16,13 +17,13 @@ const App: React.FC = () => {
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
   const [showTestMode, setShowTestMode] = useState<boolean>(false);
-  const [testModeType, setTestModeType] = useState<'fraud' | 'pdf' | 'premium' | 'hidden' | 'changes'>('fraud');
+  const [testModeType, setTestModeType] = useState<'fraud' | 'pdf' | 'premium' | 'hidden' | 'changes' | 'invoice'>('fraud');
 
   // Check for test mode in URL parameters
   React.useEffect(() => {
     const urlParams = new URLSearchParams(window.location.search);
     const testParam = urlParams.get('test');
-    const testMode = testParam === 'fraud' || testParam === 'pdf' || testParam === 'premium' || testParam === 'hidden' || testParam === 'changes' || window.location.pathname.includes('/test');
+    const testMode = testParam === 'fraud' || testParam === 'pdf' || testParam === 'premium' || testParam === 'hidden' || testParam === 'changes' || testParam === 'invoice' || window.location.pathname.includes('/test');
     setShowTestMode(testMode);
     if (testParam === 'pdf') {
       setTestModeType('pdf');
@@ -32,6 +33,8 @@ const App: React.FC = () => {
       setTestModeType('hidden');
     } else if (testParam === 'changes') {
       setTestModeType('changes');
+    } else if (testParam === 'invoice') {
+      setTestModeType('invoice');
     }
   }, []);
 
@@ -79,7 +82,9 @@ const App: React.FC = () => {
                       ? '🔒 Hidden Image System Test Mode'
                       : testModeType === 'changes'
                         ? '🤖 AI Change Analysis PDF Test Mode'
-                        : 'Advanced Fraud Detection Test Mode'
+                        : testModeType === 'invoice'
+                          ? '📊 Enhanced Invoice Viewer Test Mode'
+                          : 'Advanced Fraud Detection Test Mode'
                 }
               </h2>
               <p className="text-blue-700 text-sm">
@@ -91,7 +96,9 @@ const App: React.FC = () => {
                       ? 'Testing complete visual concealment of sensitive images while maintaining system accessibility for backend processing.'
                       : testModeType === 'changes'
                         ? 'Testing AI-focused PDF generation that shows only document changes with color coding (red: new, orange: changed).'
-                        : 'Testing comprehensive fraud detection algorithms with sample data scenarios.'
+                        : testModeType === 'invoice'
+                          ? 'Testing enhanced invoice viewer with new column order: Description, Original Price, Price Change, New Price, Status.'
+                          : 'Testing comprehensive fraud detection algorithms with sample data scenarios.'
                 }
               </p>
               <div className="mt-3 flex gap-2">
@@ -146,6 +153,16 @@ const App: React.FC = () => {
                   🤖 AI Changes
                 </button>
                 <button
+                  onClick={() => setTestModeType('invoice')}
+                  className={`px-3 py-1 text-sm rounded transition-colors ${
+                    testModeType === 'invoice'
+                      ? 'bg-indigo-600 text-white'
+                      : 'bg-indigo-200 text-indigo-800 hover:bg-indigo-300'
+                  }`}
+                >
+                  📊 Invoice Viewer
+                </button>
+                <button
                   onClick={() => setShowTestMode(false)}
                   className="px-3 py-1 bg-red-600 text-white text-sm rounded hover:bg-red-700 transition-colors ml-auto"
                 >
@@ -161,7 +178,9 @@ const App: React.FC = () => {
                   ? <HiddenImageDemo />
                   : testModeType === 'changes'
                     ? <ChangeFocusedPdfTest />
-                    : <SimplePdfTest />
+                    : testModeType === 'invoice'
+                      ? <TestEnhancedInvoiceViewer />
+                      : <SimplePdfTest />
             }
           </div>
         ) : isLoading ? (

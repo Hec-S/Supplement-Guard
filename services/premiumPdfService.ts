@@ -548,17 +548,13 @@ export class PremiumPdfGenerator {
     this.currentY += LAYOUT.spacing.section;
     this.checkPageSpace(100);
     
-    // Filter items that need warranty (contain "Repr", "Repl", or "New" in description)
-    const allItems = [...(claimData.originalInvoice?.lineItems || []), ...(claimData.supplementInvoice?.lineItems || [])];
-    const warrantyItems = allItems
+    // Filter items from SUPPLEMENT INVOICE ONLY that need warranty (contain "Rpr" or "Repl" in description)
+    const warrantyItems = (claimData.supplementInvoice?.lineItems || [])
       .filter(item => {
-        const desc = item.description.toLowerCase();
-        return desc.includes('repr') || desc.includes('repl') || desc.includes('new') || desc.includes('rpr');
-      })
-      // Remove duplicates based on description
-      .filter((item, index, self) =>
-        index === self.findIndex(i => i.description.toLowerCase() === item.description.toLowerCase())
-      );
+        const desc = item.description;
+        // Check for "Rpr" or "Repl" (case-sensitive to match actual abbreviations)
+        return desc.includes('Rpr') || desc.includes('Repl');
+      });
     
     if (warrantyItems.length > 0) {
       // Section title with background
@@ -574,29 +570,34 @@ export class PremiumPdfGenerator {
       this.currentY += LAYOUT.spacing.paragraph;
       
       // Warranty notice
-      this.addStyledText('The following items require warranty coverage as they involve repairs, replacements, or new parts:', {
+      this.addStyledText('The following supplement items require warranty coverage as they involve repairs or replacements:', {
         fontSize: TYPOGRAPHY.sizes.body,
         color: COLORS.textSecondary
       });
       
       this.currentY += LAYOUT.spacing.paragraph;
       
-      // Prepare warranty data with work type classification
+      // Prepare warranty data with work type classification and price comparison
       const warrantyData = warrantyItems.map(item => {
-        // Determine the type of work
-        const desc = item.description.toLowerCase();
+        // Find the corresponding original item to get price comparison
+        const originalItem = claimData.originalInvoice?.lineItems.find(
+          orig => orig.description.toLowerCase().trim() === item.description.toLowerCase().trim()
+        );
+        
+        const originalTotal = originalItem ? originalItem.total : 0;
+        const priceChange = item.total - originalTotal;
+        
+        // Determine the type of work based on description
+        const desc = item.description;
         let workType = '';
         let workTypeColor = COLORS.textPrimary;
         
-        if (desc.includes('repl')) {
+        if (desc.includes('Repl')) {
           workType = 'REPLACEMENT';
           workTypeColor = '#DC2677'; // Pink
-        } else if (desc.includes('repr') || desc.includes('rpr')) {
+        } else if (desc.includes('Rpr')) {
           workType = 'REPAIR';
           workTypeColor = '#EA580C'; // Orange
-        } else if (desc.includes('new')) {
-          workType = 'NEW PART';
-          workTypeColor = '#3B82F6'; // Blue
         } else {
           workType = 'SERVICE';
           workTypeColor = COLORS.textSecondary;
@@ -606,7 +607,9 @@ export class PremiumPdfGenerator {
           description: item.description,
           workType: workType,
           workTypeColor: workTypeColor,
-          amount: item.total,
+          originalAmount: originalTotal,
+          newAmount: item.total,
+          priceChange: priceChange,
           warrantyStatus: 'NEEDS WARRANTY'
         };
       });
@@ -660,8 +663,8 @@ Please note: Any misrepresentation of repairs, labor, parts, or supplements—in
   }
 
   private createWarrantyTable(data: any[]): void {
-    const headers = ['Description', 'Type', 'Amount', 'Warranty Status'];
-    const colWidths = [70, 30, 30, 40];
+    const headers = ['Description', 'Type', 'Original', 'New', 'Change', 'Warranty Status'];
+    const colWidths = [50, 25, 25, 25, 25, 30];
     
     // Table header
     this.doc.setFillColor(...this.hexToRgb(COLORS.primary));
@@ -705,15 +708,43 @@ Please note: Any misrepresentation of repairs, labor, parts, or supplements—in
       this.doc.text(item.workType, currentX + 2, this.currentY + 5);
       currentX += colWidths[1];
       
-      // Amount column
+      // Original Amount column
       this.doc.setFont(TYPOGRAPHY.fonts.primary, TYPOGRAPHY.weights.normal);
       this.doc.setTextColor(...this.hexToRgb(COLORS.textPrimary));
-      const formattedAmount = new Intl.NumberFormat('en-US', {
+      const formattedOriginal = item.originalAmount > 0 ? new Intl.NumberFormat('en-US', {
         style: 'currency',
         currency: 'USD',
-      }).format(item.amount);
-      this.doc.text(formattedAmount, currentX + 2, this.currentY + 5);
+      }).format(item.originalAmount) : '-';
+      this.doc.text(formattedOriginal, currentX + 2, this.currentY + 5);
       currentX += colWidths[2];
+      
+      // New Amount column
+      const formattedNew = new Intl.NumberFormat('en-US', {
+        style: 'currency',
+        currency: 'USD',
+      }).format(item.newAmount);
+      this.doc.text(formattedNew, currentX + 2, this.currentY + 5);
+      currentX += colWidths[3];
+      
+      // Price Change column (colored based on increase/decrease)
+      if (item.priceChange !== 0) {
+        if (item.priceChange > 0) {
+          this.doc.setTextColor(255, 0, 0); // Red for increase
+        } else {
+          this.doc.setTextColor(0, 128, 0); // Green for decrease
+        }
+        this.doc.setFont(TYPOGRAPHY.fonts.primary, TYPOGRAPHY.weights.bold);
+        const formattedChange = new Intl.NumberFormat('en-US', {
+          style: 'currency',
+          currency: 'USD',
+        }).format(item.priceChange);
+        this.doc.text(formattedChange, currentX + 2, this.currentY + 5);
+      } else {
+        this.doc.setTextColor(...this.hexToRgb(COLORS.textPrimary));
+        this.doc.setFont(TYPOGRAPHY.fonts.primary, TYPOGRAPHY.weights.normal);
+        this.doc.text('-', currentX + 2, this.currentY + 5);
+      }
+      currentX += colWidths[4];
       
       // Warranty Status column (RED)
       this.doc.setFont(TYPOGRAPHY.fonts.primary, TYPOGRAPHY.weights.bold);
