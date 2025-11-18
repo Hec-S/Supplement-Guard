@@ -157,115 +157,270 @@ export const generatePdfReport = (claimData: ClaimData, comparisonAnalysis?: Com
 
     currentY += 15;
 
-    // Original Invoice Section
+    // Original Invoice Section - Check if categories exist
     checkPageSpace(100);
     addSafeText('Original Invoice', safeZone, maxContentWidth, 16, 'bold');
     currentY += 5;
 
-    // Create table for original invoice
-    const originalHeaders = ['Description', 'Qty', 'Price', 'Total'];
-    const originalData = claimData.originalInvoice.lineItems.map(item => [
-      item.description,
-      item.quantity.toString(),
-      formatCurrency(item.price),
-      formatCurrency(item.total)
-    ]);
-    
-    // Add totals rows
-    originalData.push([
-      'SUBTOTAL',
-      '',
-      '',
-      formatCurrency(claimData.originalInvoice.subtotal)
-    ]);
-    originalData.push([
-      'TAX',
-      '',
-      '',
-      formatCurrency(claimData.originalInvoice.tax)
-    ]);
-    originalData.push([
-      'TOTAL',
-      '',
-      '',
-      formatCurrency(claimData.originalInvoice.total)
-    ]);
-    
-    createImprovedTable(doc, originalHeaders, originalData, safeZone, currentY, maxContentWidth);
-    currentY += (originalData.length + 1) * 8 + 10;
+    // Check if items have categories
+    const originalHasCategories = claimData.originalInvoice.lineItems.some(item => item.category);
 
-    // Supplement Invoice Section
+    if (originalHasCategories) {
+      // Group items by category
+      const originalByCategory = claimData.originalInvoice.lineItems.reduce((acc, item) => {
+        const category = item.category || 'UNCATEGORIZED';
+        if (!acc[category]) {
+          acc[category] = [];
+        }
+        acc[category].push(item);
+        return acc;
+      }, {} as Record<string, typeof claimData.originalInvoice.lineItems>);
+
+      // Process each category
+      Object.keys(originalByCategory).sort().forEach(category => {
+        const categoryItems = originalByCategory[category];
+        if (categoryItems.length === 0) return;
+
+        // Add category header
+        checkPageSpace(15);
+        doc.setFillColor(240, 240, 240);
+        doc.rect(safeZone, currentY, maxContentWidth, 8, 'F');
+        doc.setFont(undefined, 'bold');
+        doc.setFontSize(11);
+        doc.setTextColor(0, 0, 0);
+        doc.text(category, safeZone + 2, currentY + 5);
+        currentY += 10;
+
+        // Create table for this category
+        const originalHeaders = ['Description', 'Qty', 'Price', 'Total'];
+        const categoryData = categoryItems.map(item => [
+          item.description,
+          item.quantity.toString(),
+          formatCurrency(item.price),
+          formatCurrency(item.total)
+        ]);
+
+        createImprovedTable(doc, originalHeaders, categoryData, safeZone, currentY, maxContentWidth);
+        currentY += (categoryData.length + 1) * 8 + 5;
+      });
+
+      // Add totals section
+      currentY += 10;
+      checkPageSpace(30);
+      doc.setFillColor(230, 230, 230);
+      doc.rect(safeZone, currentY, maxContentWidth, 25, 'F');
+      
+      doc.setFont(undefined, 'bold');
+      doc.setFontSize(10);
+      doc.setTextColor(51, 51, 51);
+      
+      doc.text(`SUBTOTAL: ${formatCurrency(claimData.originalInvoice.subtotal)}`, safeZone + 5, currentY + 8);
+      doc.text(`TAX: ${formatCurrency(claimData.originalInvoice.tax)}`, safeZone + 5, currentY + 15);
+      doc.text(`TOTAL: ${formatCurrency(claimData.originalInvoice.total)}`, safeZone + 5, currentY + 22);
+      
+      currentY += 30;
+    } else {
+      // Fallback to original flat table if no categories
+      // Create table for original invoice
+      const originalHeaders = ['Description', 'Qty', 'Price', 'Total'];
+      const originalData = claimData.originalInvoice.lineItems.map(item => [
+        item.description,
+        item.quantity.toString(),
+        formatCurrency(item.price),
+        formatCurrency(item.total)
+      ]);
+      
+      // Add totals rows
+      originalData.push([
+        'SUBTOTAL',
+        '',
+        '',
+        formatCurrency(claimData.originalInvoice.subtotal)
+      ]);
+      originalData.push([
+        'TAX',
+        '',
+        '',
+        formatCurrency(claimData.originalInvoice.tax)
+      ]);
+      originalData.push([
+        'TOTAL',
+        '',
+        '',
+        formatCurrency(claimData.originalInvoice.total)
+      ]);
+      
+      createImprovedTable(doc, originalHeaders, originalData, safeZone, currentY, maxContentWidth);
+      currentY += (originalData.length + 1) * 8 + 10;
+    }
+
+    // Supplement Invoice Section - Check if categories exist
     checkPageSpace(100);
     addSafeText('Supplement Invoice', safeZone, maxContentWidth, 16, 'bold');
     currentY += 5;
 
-    // Sort supplement items by status: NEW first, then CHANGED, then SAME
-    const sortedSupplementItems = [...claimData.supplementInvoice.lineItems].sort((a, b) => {
-      // Define status priority: NEW = 1, CHANGED = 2, SAME = 3
-      const getStatusPriority = (item: any) => {
-        if (item.isNew) return 1;
-        if (item.isChanged) return 2;
-        return 3;
-      };
-      
-      return getStatusPriority(a) - getStatusPriority(b);
-    });
+    // Check if items have categories
+    const hasCategories = claimData.supplementInvoice.lineItems.some(item => item.category);
 
-    // Create table for supplement invoice with color coding
-    const supplementHeaders = ['Description', 'Original Price', 'Price Change', 'New Price', 'Status'];
-    const supplementData = sortedSupplementItems.map(item => {
-      // Find the corresponding original item to get original price
-      const originalItem = claimData.originalInvoice.lineItems.find(
-        orig => orig.description.toLowerCase().trim() === item.description.toLowerCase().trim()
+    if (hasCategories) {
+      // Group items by category
+      const itemsByCategory = claimData.supplementInvoice.lineItems.reduce((acc, item) => {
+        const category = item.category || 'UNCATEGORIZED';
+        if (!acc[category]) {
+          acc[category] = [];
+        }
+        acc[category].push(item);
+        return acc;
+      }, {} as Record<string, typeof claimData.supplementInvoice.lineItems>);
+
+      // Also add removed items from original
+      const removedItems = claimData.originalInvoice.lineItems.filter(origItem =>
+        !claimData.supplementInvoice.lineItems.some(suppItem =>
+          suppItem.description.toLowerCase() === origItem.description.toLowerCase()
+        )
       );
+
+      removedItems.forEach(item => {
+        const category = item.category || 'UNCATEGORIZED';
+        if (!itemsByCategory[category]) {
+          itemsByCategory[category] = [];
+        }
+        itemsByCategory[category].push({ ...item, isRemoved: true });
+      });
+
+      // Process each category
+      Object.keys(itemsByCategory).sort().forEach(category => {
+        const categoryItems = itemsByCategory[category];
+        if (categoryItems.length === 0) return;
+
+        // Add category header
+        checkPageSpace(15);
+        doc.setFillColor(240, 240, 240);
+        doc.rect(safeZone, currentY, maxContentWidth, 8, 'F');
+        doc.setFont(undefined, 'bold');
+        doc.setFontSize(11);
+        doc.setTextColor(0, 0, 0);
+        doc.text(category, safeZone + 2, currentY + 5);
+        currentY += 10;
+
+        // Create table for this category
+        const supplementHeaders = ['Description', 'Original Price', 'Price Change', 'New Price', 'Status'];
+        const categoryData = categoryItems.map(item => {
+          // Find the corresponding original item
+          const originalItem = claimData.originalInvoice.lineItems.find(
+            orig => orig.description.toLowerCase().trim() === item.description.toLowerCase().trim()
+          );
+          
+          const originalTotal = originalItem ? originalItem.total : 0;
+          const priceChange = item.total - originalTotal;
+          
+          let status = 'SAME';
+          if (item.isNew) status = 'NEW';
+          else if (item.isRemoved) status = 'REMOVED';
+          else if (item.isChanged) status = 'CHANGED';
+          
+          return [
+            item.description,
+            originalItem ? formatCurrency(originalTotal) : '-',
+            priceChange !== 0 ? formatCurrency(priceChange) : '-',
+            item.isRemoved ? '-' : formatCurrency(item.total),
+            status
+          ];
+        });
+
+        createImprovedTableWithColors(doc, supplementHeaders, categoryData, safeZone, currentY, maxContentWidth, categoryItems, claimData.originalInvoice.lineItems);
+        currentY += (categoryData.length + 1) * 8 + 5;
+      });
+
+      // Add totals section
+      currentY += 10;
+      checkPageSpace(40);
+      doc.setFillColor(230, 230, 230);
+      doc.rect(safeZone, currentY, maxContentWidth, 30, 'F');
       
-      const originalTotal = originalItem ? originalItem.total : 0;
-      const priceChange = item.total - originalTotal;
+      doc.setFont(undefined, 'bold');
+      doc.setFontSize(10);
+      doc.setTextColor(51, 51, 51);
       
-      return [
-        item.description,
-        originalItem ? formatCurrency(originalTotal) : '-',
-        priceChange !== 0 ? formatCurrency(priceChange) : '-',
-        formatCurrency(item.total),
-        item.isNew ? 'NEW' : item.isChanged ? 'CHANGED' : 'SAME'
-      ];
-    });
-    
-    // Add totals rows
-    supplementData.push([
-      'SUBTOTAL',
-      '',
-      '',
-      formatCurrency(claimData.supplementInvoice.subtotal),
-      ''
-    ]);
-    supplementData.push([
-      'TAX',
-      '',
-      '',
-      formatCurrency(claimData.supplementInvoice.tax),
-      ''
-    ]);
-    supplementData.push([
-      'TOTAL',
-      '',
-      '',
-      formatCurrency(claimData.supplementInvoice.total),
-      ''
-    ]);
-    
-    // Cost difference
-    const difference = claimData.supplementInvoice.total - claimData.originalInvoice.total;
-    supplementData.push([
-      'COST DIFFERENCE',
-      '',
-      '',
-      formatCurrency(difference),
-      difference > 0 ? 'INCREASE' : 'DECREASE'
-    ]);
-    
-    createImprovedTableWithColors(doc, supplementHeaders, supplementData, safeZone, currentY, maxContentWidth, sortedSupplementItems, claimData.originalInvoice.lineItems);
-    currentY += (supplementData.length + 1) * 8 + 10;
+      doc.text(`SUBTOTAL: ${formatCurrency(claimData.supplementInvoice.subtotal)}`, safeZone + 5, currentY + 8);
+      doc.text(`TAX: ${formatCurrency(claimData.supplementInvoice.tax)}`, safeZone + 5, currentY + 15);
+      doc.text(`TOTAL: ${formatCurrency(claimData.supplementInvoice.total)}`, safeZone + 5, currentY + 22);
+      
+      const difference = claimData.supplementInvoice.total - claimData.originalInvoice.total;
+      doc.setTextColor(difference > 0 ? 200 : 0, difference > 0 ? 0 : 150, 0);
+      doc.text(`COST DIFFERENCE: ${difference > 0 ? '+' : ''}${formatCurrency(difference)}`, safeZone + maxContentWidth/2, currentY + 15);
+      
+      currentY += 35;
+    } else {
+      // Fallback to original flat table if no categories
+      // Sort supplement items by status: NEW first, then CHANGED, then SAME
+      const sortedSupplementItems = [...claimData.supplementInvoice.lineItems].sort((a, b) => {
+        // Define status priority: NEW = 1, CHANGED = 2, SAME = 3
+        const getStatusPriority = (item: any) => {
+          if (item.isNew) return 1;
+          if (item.isChanged) return 2;
+          return 3;
+        };
+        
+        return getStatusPriority(a) - getStatusPriority(b);
+      });
+
+      // Create table for supplement invoice with color coding
+      const supplementHeaders = ['Description', 'Original Price', 'Price Change', 'New Price', 'Status'];
+      const supplementData = sortedSupplementItems.map(item => {
+        // Find the corresponding original item to get original price
+        const originalItem = claimData.originalInvoice.lineItems.find(
+          orig => orig.description.toLowerCase().trim() === item.description.toLowerCase().trim()
+        );
+        
+        const originalTotal = originalItem ? originalItem.total : 0;
+        const priceChange = item.total - originalTotal;
+        
+        return [
+          item.description,
+          originalItem ? formatCurrency(originalTotal) : '-',
+          priceChange !== 0 ? formatCurrency(priceChange) : '-',
+          formatCurrency(item.total),
+          item.isNew ? 'NEW' : item.isChanged ? 'CHANGED' : 'SAME'
+        ];
+      });
+      
+      // Add totals rows
+      supplementData.push([
+        'SUBTOTAL',
+        '',
+        '',
+        formatCurrency(claimData.supplementInvoice.subtotal),
+        ''
+      ]);
+      supplementData.push([
+        'TAX',
+        '',
+        '',
+        formatCurrency(claimData.supplementInvoice.tax),
+        ''
+      ]);
+      supplementData.push([
+        'TOTAL',
+        '',
+        '',
+        formatCurrency(claimData.supplementInvoice.total),
+        ''
+      ]);
+      
+      // Cost difference
+      const difference = claimData.supplementInvoice.total - claimData.originalInvoice.total;
+      supplementData.push([
+        'COST DIFFERENCE',
+        '',
+        '',
+        formatCurrency(difference),
+        difference > 0 ? 'INCREASE' : 'DECREASE'
+      ]);
+      
+      createImprovedTableWithColors(doc, supplementHeaders, supplementData, safeZone, currentY, maxContentWidth, sortedSupplementItems, claimData.originalInvoice.lineItems);
+      currentY += (supplementData.length + 1) * 8 + 10;
+    }
 
     // Needs Warranty Section
     currentY += 10;

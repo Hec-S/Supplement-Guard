@@ -11,12 +11,33 @@ const invoiceLineItemSchema = {
   type: Type.OBJECT,
   properties: {
     id: { type: Type.STRING, description: "A unique ID for the line item, e.g., 'sli-1'." },
+    category: {
+      type: Type.STRING,
+      description: "The category this item belongs to (e.g., 'REAR BUMPER', 'REAR LAMPS', 'VEHICLE DIAGNOSTICS', etc.)"
+    },
+    lineNumber: { type: Type.NUMBER, nullable: true, description: "The line number from the invoice" },
+    operation: { type: Type.STRING, nullable: true, description: "Operation code (e.g., 'S01', 'R&I', 'Repl')" },
     description: { type: Type.STRING },
     quantity: { type: Type.NUMBER },
     price: { type: Type.NUMBER },
     total: { type: Type.NUMBER },
+    laborHours: { type: Type.NUMBER, nullable: true, description: "Labor hours if applicable" },
+    paintHours: { type: Type.NUMBER, nullable: true, description: "Paint hours if applicable" },
     isNew: { type: Type.BOOLEAN, nullable: true, description: "True if this item only exists in the supplement invoice." },
     isChanged: { type: Type.BOOLEAN, nullable: true, description: "True if quantity or price changed from the original." },
+    isRemoved: { type: Type.BOOLEAN, nullable: true, description: "True if this item was in original but not in supplement." },
+    // Change tracking fields
+    originalQuantity: { type: Type.NUMBER, nullable: true, description: "Original quantity if item changed" },
+    originalPrice: { type: Type.NUMBER, nullable: true, description: "Original price if item changed" },
+    originalTotal: { type: Type.NUMBER, nullable: true, description: "Original total if item changed" },
+    quantityChange: { type: Type.NUMBER, nullable: true, description: "Difference in quantity (supplement - original)" },
+    priceChange: { type: Type.NUMBER, nullable: true, description: "Difference in price (supplement - original)" },
+    totalChange: { type: Type.NUMBER, nullable: true, description: "Difference in total (supplement - original)" },
+    changeType: {
+      type: Type.STRING,
+      nullable: true,
+      description: "Type of change: NEW, REMOVED, QUANTITY_CHANGED, PRICE_CHANGED, BOTH_CHANGED, UNCHANGED"
+    },
     // Enhanced automotive fields
     partNumber: { type: Type.STRING, nullable: true, description: "OEM or aftermarket part number if identifiable" },
     vehicleSystem: {
@@ -29,11 +50,9 @@ const invoiceLineItemSchema = {
       nullable: true,
       description: "Part category: OEM, AFTERMARKET, LABOR, PAINT_MATERIALS, CONSUMABLES, RENTAL, STORAGE, OTHER"
     },
-    isOEM: { type: Type.BOOLEAN, nullable: true, description: "True if identified as OEM part, false if aftermarket" },
-    laborHours: { type: Type.NUMBER, nullable: true, description: "Labor hours if this is a labor line item" },
-    laborRate: { type: Type.NUMBER, nullable: true, description: "Hourly labor rate if this is a labor line item" }
+    isOEM: { type: Type.BOOLEAN, nullable: true, description: "True if identified as OEM part, false if aftermarket" }
   },
-  required: ['id', 'description', 'quantity', 'price', 'total']
+  required: ['id', 'category', 'description', 'quantity', 'price', 'total']
 };
 
 const invoiceSchema = {
@@ -54,15 +73,29 @@ const claimDataSchema = {
     id: { type: Type.STRING, description: "Generate a unique claim ID, e.g., CLM-2024-XXXXXX" },
     originalInvoice: invoiceSchema,
     supplementInvoice: invoiceSchema,
-    fraudScore: { type: Type.INTEGER, description: "A fraud risk score from 0 (low risk) to 100 (high risk)." },
+    // Change tracking summary
+    changesSummary: {
+      type: Type.OBJECT,
+      properties: {
+        totalNewItems: { type: Type.INTEGER, description: "Count of new items added in supplement" },
+        totalRemovedItems: { type: Type.INTEGER, description: "Count of items removed from original" },
+        totalChangedItems: { type: Type.INTEGER, description: "Count of items with changes" },
+        totalUnchangedItems: { type: Type.INTEGER, description: "Count of unchanged items" },
+        totalAmountChange: { type: Type.NUMBER, description: "Total dollar amount change" },
+        percentageChange: { type: Type.NUMBER, description: "Percentage change in total" }
+      },
+      required: ['totalNewItems', 'totalRemovedItems', 'totalChangedItems', 'totalUnchangedItems', 'totalAmountChange', 'percentageChange']
+    },
+    // Keep these for backward compatibility but make them minimal
+    fraudScore: { type: Type.INTEGER, description: "Set to 0 - not used for fraud detection anymore" },
     fraudReasons: {
         type: Type.ARRAY,
-        description: "A list of 2-3 simple reasons why this claim might be fake or wrong. Use easy words that anyone can understand.",
+        description: "Empty array - not used for fraud detection anymore",
         items: { type: Type.STRING }
     },
-    invoiceSummary: { type: Type.STRING, description: "A simple summary of what changed between the two bills. Use easy words and short sentences." }
+    invoiceSummary: { type: Type.STRING, description: "A detailed summary of what changed between the original and supplement invoices, focusing on line item changes." }
   },
-  required: ['id', 'originalInvoice', 'supplementInvoice', 'fraudScore', 'fraudReasons', 'invoiceSummary']
+  required: ['id', 'originalInvoice', 'supplementInvoice', 'changesSummary', 'fraudScore', 'fraudReasons', 'invoiceSummary']
 };
 
 /**
@@ -99,15 +132,41 @@ const validateClaimData = (data: any): data is ClaimData => {
     checkProperty(invoice, 'tax', 'number');
     checkProperty(invoice, 'total', 'number');
 
-    // Sample check of the first line item for structure
+    // Enhanced validation for line items with change tracking and categories
     if (invoice.lineItems.length > 0) {
-      const firstItem = invoice.lineItems[0];
-      checkProperty(firstItem, 'id', 'string');
-      checkProperty(firstItem, 'description', 'string');
-      checkProperty(firstItem, 'quantity', 'number');
-      checkProperty(firstItem, 'price', 'number');
-      checkProperty(firstItem, 'total', 'number');
+      invoice.lineItems.forEach((item: any, index: number) => {
+        if (!item.id || typeof item.id !== 'string') {
+          throw new Error(`Line item ${index} is missing a valid 'id' field.`);
+        }
+        if (!item.category || typeof item.category !== 'string') {
+          throw new Error(`Line item ${index} is missing a valid 'category' field.`);
+        }
+        if (!item.description || typeof item.description !== 'string') {
+          throw new Error(`Line item ${index} is missing a valid 'description' field.`);
+        }
+        if (typeof item.quantity !== 'number') {
+          throw new Error(`Line item ${index} is missing a valid 'quantity' field.`);
+        }
+        if (typeof item.price !== 'number') {
+          throw new Error(`Line item ${index} is missing a valid 'price' field.`);
+        }
+        if (typeof item.total !== 'number') {
+          throw new Error(`Line item ${index} is missing a valid 'total' field.`);
+        }
+      });
     }
+  };
+
+  const validateChangesSummary = (summary: any) => {
+    if (!summary) {
+      throw new Error("The AI response is missing the 'changesSummary' object.");
+    }
+    checkProperty(summary, 'totalNewItems', 'number');
+    checkProperty(summary, 'totalRemovedItems', 'number');
+    checkProperty(summary, 'totalChangedItems', 'number');
+    checkProperty(summary, 'totalUnchangedItems', 'number');
+    checkProperty(summary, 'totalAmountChange', 'number');
+    checkProperty(summary, 'percentageChange', 'number');
   };
   
   checkProperty(data, 'id', 'string');
@@ -116,6 +175,7 @@ const validateClaimData = (data: any): data is ClaimData => {
   checkProperty(data, 'invoiceSummary', 'string');
   validateInvoice(data.originalInvoice, 'originalInvoice');
   validateInvoice(data.supplementInvoice, 'supplementInvoice');
+  validateChangesSummary(data.changesSummary);
 
   return true;
 };
@@ -148,131 +208,161 @@ export const analyzeClaimPackage = async (
   const originalParts = await Promise.all(originalFiles.map(fileToGenerativePart));
   const supplementParts = await Promise.all(supplementFiles.map(fileToGenerativePart));
 
-  const prompt = `You are a meticulous automotive insurance fraud analyst with exceptional Optical Character Recognition (OCR) capabilities and deep knowledge of automotive parts and repair procedures. Your primary goal is accuracy. Your task is to analyze a claim package and return your findings in a single JSON object.
+  const prompt = `You are a meticulous document analyst with exceptional Optical Character Recognition (OCR) capabilities specializing in automotive repair invoices. Your primary goal is to accurately extract and compare LINE ITEMS WITH THEIR CATEGORIES between original and supplement claim packages.
+
+Your task is to:
+1. Extract all line items from both documents WITH THEIR CATEGORIES
+2. Compare them to identify what changed
+3. Track additions, removals, and modifications
+4. Extract the COMPLETE workfile total from supplement (estimate + all supplements)
+5. Return structured data showing these changes
+
+CRITICAL TOTAL EXTRACTION:
+- In the SUPPLEMENT file, the "Workfile Total" or "NET COST OF REPAIRS" shows the COMPLETE total
+- This total = Original Estimate + All Supplements combined
+- This is the TRUE final amount for the entire claim
+- Always prioritize extracting this value for accurate total reporting
 
 Follow these instructions precisely:
 
-1.  **Invoice OCR and Data Extraction:**
-    *   For each invoice document (original and supplement), perform a detailed OCR to extract its contents.
-    
-    *   **CRITICAL - SPECIAL SECTIONS FOR ACCURATE TOTALS:**
-        
-        **For ORIGINAL CLAIM PACKAGE:**
-        - FIRST, search for "Net Cost of Repairs" in the document
-        - This is the AUTHORITATIVE total for the original claim
-        - Use this value as the final total for the original invoice
-        - This overrides any other calculated or extracted totals
-        
-        **For SUPPLEMENT PACKAGE:**
-        - FIRST, search for a section titled "CUMULATIVE EFFECTS OF SUPPLEMENT(S)" or similar variations
-        - If this section exists, extract ALL values from it, specifically:
-          • "Estimate Total" - This is the AUTHORITATIVE total for the estimate
-          • "Supplements" or "Supplement Total" - This is the AUTHORITATIVE supplement amount
-          • Any other totals listed in this section
-        - These values from the CUMULATIVE EFFECTS section OVERRIDE all other totals
-        - Use the "Estimate Total" from this section as the final invoice total
-        
-        **These are the TRUE and ACCURATE numbers that must be used**
-    
-    *   **Line Items:** Meticulously extract every line item. Capture the description, quantity, unit price, and total for each item.
-    
-    *   **Fallback Totals (ONLY if CUMULATIVE EFFECTS section is not found):**
-        - Search the document for 'Subtotal', 'Tax', and 'Total' amounts
-        - Extract these exact values as they appear on the invoice
-        - Do not calculate them yourself unless absolutely necessary
-    
-    *   **Important:** If CUMULATIVE EFFECTS section exists, its totals are the ONLY totals to use, regardless of any other calculations or values found elsewhere in the document.
+1. **CATEGORY AND LINE ITEM OCR and Extraction:**
+   
+   **CRITICAL: Identify CATEGORIES and assign each line item to its category**
+   
+   Categories in invoices appear as:
+   - **BOLD BLACK TEXT** headers (ALL CAPS)
+   - Examples: "REAR BUMPER", "REAR LAMPS", "VEHICLE DIAGNOSTICS", "QUARTER PANEL", "MISCELLANEOUS OPERATIONS", "OTHER CHARGES"
+   - Categories group related line items underneath them
+   
+   For each document (original and supplement):
+   - First identify all CATEGORY headers (bold, all caps text)
+   - Then extract every line item under each category
+   - Each line item MUST include:
+     • Category it belongs to (REQUIRED - use "UNCATEGORIZED" if no category found)
+     • Line number (if visible in the invoice)
+     • Operation code (e.g., "S01", "R&I", "Repl", "O/H")
+     • Description (exact text as shown)
+     • Quantity
+     • Unit price
+     • Total amount
+     • Labor hours (if shown)
+     • Paint hours (if shown separately)
+   
+   Common category patterns to recognize:
+   - Body parts: REAR BUMPER, FRONT BUMPER, QUARTER PANEL, HOOD, DOOR, etc.
+   - Lighting: REAR LAMPS, FRONT LAMPS, HEADLAMPS, etc.
+   - Systems: VEHICLE DIAGNOSTICS, ELECTRICAL, SUSPENSION, FRAME, etc.
+   - Operations: MISCELLANEOUS OPERATIONS, OTHER CHARGES, PAINT OPERATIONS, etc.
+   - Materials: PAINT MATERIALS, CONSUMABLES, etc.
 
-2.  **Total Values Assignment:**
-    *   For ORIGINAL PACKAGE:
-        - If "Net Cost of Repairs" was found, use it as the final 'total'
-        - This value is FINAL and AUTHORITATIVE - do not recalculate
-        - If not found, fall back to extracted Subtotal, Tax, and Total
-    *   For SUPPLEMENT PACKAGE:
-        - If CUMULATIVE EFFECTS section was found:
-          • Use "Estimate Total" as the final 'total' for the invoice
-          • Use "Supplements" value as the supplement amount
-          • These values are FINAL and AUTHORITATIVE - do not recalculate
-        - If CUMULATIVE EFFECTS section was NOT found:
-          • Use the extracted Subtotal, Tax, and Total from the document
-          • Verify that line items sum matches the Subtotal
+2. **Line Item Matching and Comparison:**
+   
+   **CRITICAL: Compare LINE ITEMS between documents, preserving category structure**
+   
+   - Match items between original and supplement based on BOTH category AND description
+   - Items should be compared within the same category when possible
+   - Use fuzzy matching for similar descriptions (e.g., "Front Bumper" vs "Frnt Bumper")
+   - Track the following changes:
+     
+     a) **NEW ITEMS** (isNew: true):
+        - Items that appear ONLY in the supplement
+        - Not present in the original at all
+     
+     b) **REMOVED ITEMS** (isRemoved: true):
+        - Items that were in the original
+        - But are NOT in the supplement
+     
+     c) **CHANGED ITEMS** (isChanged: true):
+        - Items in both documents but with different:
+          • Quantity
+          • Price
+          • Total
+        - Store original values for comparison
+        - Calculate the differences
+     
+     d) **UNCHANGED ITEMS**:
+        - Items identical in both documents
+        - Same quantity, price, and total
 
-3.  **Enhanced Automotive Part Analysis:**
-    For each line item, perform detailed automotive part identification:
-    
-    **Part Number Identification:**
-    *   Look for OEM part numbers (e.g., Toyota: 90311-38003, Honda: 06164-P2A-000, Ford: F1TZ-6731-A)
-    *   Look for aftermarket part numbers (e.g., Dorman: 924-5208, Beck Arnley: 158-0632)
-    *   Extract any visible part numbers from the description
-    
-    **Vehicle System Classification:**
-    Categorize each part into one of these systems:
-    *   ENGINE: Engine blocks, pistons, valves, timing components, gaskets, filters
-    *   TRANSMISSION: Transmission cases, gears, clutches, torque converters, fluid
-    *   BRAKES: Brake pads, rotors, calipers, brake lines, master cylinders, ABS components
-    *   SUSPENSION: Shocks, struts, springs, control arms, ball joints, sway bars
-    *   ELECTRICAL: Alternators, starters, batteries, wiring harnesses, sensors, ECUs
-    *   BODY: Panels, bumpers, fenders, doors, hoods, mirrors, trim pieces
-    *   INTERIOR: Seats, dashboard components, carpets, door panels, airbags
-    *   EXHAUST: Catalytic converters, mufflers, exhaust pipes, manifolds
-    *   COOLING: Radiators, water pumps, thermostats, cooling fans, hoses
-    *   FUEL: Fuel pumps, injectors, fuel lines, tanks, filters
-    *   STEERING: Steering wheels, columns, racks, power steering pumps
-    *   HVAC: Air conditioning compressors, heaters, blower motors, evaporators
-    *   SAFETY: Airbags, seatbelts, safety sensors, crash components
-    *   WHEELS_TIRES: Wheels, tires, tire pressure sensors, wheel bearings
-    *   OTHER: Items that don't fit the above categories
-    
-    **Part Category Classification:**
-    *   OEM: Original Equipment Manufacturer parts (Toyota, Honda, Ford, GM, etc.)
-    *   AFTERMARKET: Third-party manufactured parts (Dorman, Beck Arnley, Febi, etc.)
-    *   LABOR: Labor charges, diagnostic time, shop supplies
-    *   PAINT_MATERIALS: Paint, primer, clear coat, masking materials, sandpaper
-    *   CONSUMABLES: Fluids, oils, filters, gaskets, small hardware
-    *   RENTAL: Car rental, equipment rental
-    *   STORAGE: Storage fees, towing fees
-    *   OTHER: Items that don't fit the above categories
-    
-    **Labor Analysis:**
-    *   For labor items, extract hourly rate and hours worked
-    *   Look for patterns like "Labor: 2.5 hrs @ $125/hr = $312.50"
-    *   Identify if labor rates are within industry standards ($80-$150/hr typical)
-    
-    **OEM vs Aftermarket Detection:**
-    *   OEM indicators: Manufacturer logos, "Genuine" parts, dealer part numbers
-    *   Aftermarket indicators: Third-party brand names, generic descriptions, lower prices
+3. **Change Tracking Details:**
+   
+   For CHANGED items, track:
+   - originalQuantity, originalPrice, originalTotal
+   - quantityChange (supplement - original)
+   - priceChange (supplement - original)
+   - totalChange (supplement - original)
+   - changeType: "QUANTITY_CHANGED", "PRICE_CHANGED", or "BOTH_CHANGED"
+   
+   For NEW items:
+   - changeType: "NEW"
+   - All change fields can be null
+   
+   For REMOVED items:
+   - Include in original invoice with isRemoved: true
+   - changeType: "REMOVED"
+   
+   For UNCHANGED items:
+   - changeType: "UNCHANGED"
+   - All change fields should be 0
 
-4.  **Compare Invoices:**
-    *   Compare the line items from the supplement invoice to the original.
-    *   Mark items that only appear in the supplement as 'isNew: true'.
-    *   Mark items that exist in both but have a different quantity or price as 'isChanged: true'.
-    *   IMPORTANT: Use the totals from CUMULATIVE EFFECTS section if available for accurate comparison
+4. **Automotive Part Classification (Optional but Helpful):**
+   
+   For better tracking, classify parts when possible:
+   - Part numbers (OEM or aftermarket)
+   - Vehicle system (ENGINE, BRAKES, BODY, etc.)
+   - Part category (OEM, AFTERMARKET, LABOR, etc.)
+   - Labor hours and rates if applicable
 
-5.  **Automotive Fraud Risk Assessment:**
-    Analyze for automotive-specific fraud patterns:
-    *   **Part Inflation:** Are OEM parts being charged when aftermarket parts are used?
-    *   **Labor Padding:** Are labor hours excessive for the type of repair?
-    *   **Unnecessary Repairs:** Are parts being replaced that shouldn't need replacement?
-    *   **Duplicate Parts:** Are the same parts listed multiple times?
-    *   **Incompatible Parts:** Are parts listed that don't belong to the vehicle model?
-    *   **Price Gouging:** Are parts priced significantly above market rates?
-    *   **Phantom Repairs:** Are repairs listed that weren't actually performed?
+5. **Document Totals (After Line Item Analysis):**
+   
+   After processing line items, extract totals:
+   
+   **For ORIGINAL:**
+   - Look for "Net Cost of Repairs" as authoritative total
+   - Or use Subtotal, Tax, Total from document
+   
+   **For SUPPLEMENT:**
+   - **CRITICAL - LOOK FOR THESE TOTALS IN ORDER OF PRIORITY:**
+     1. "Workfile Total" - This is the MOST AUTHORITATIVE total (estimate + all supplements)
+     2. "NET COST OF REPAIRS" - Alternative name for the complete total
+     3. "CUMULATIVE EFFECTS OF SUPPLEMENT(S)" section if above not found
+     4. Or use Subtotal, Tax, Total from document as last resort
+   
+   **IMPORTANT:** The "Workfile Total" or "NET COST OF REPAIRS" in the supplement represents the COMPLETE total including the original estimate PLUS all supplements. This is the TRUE final amount.
 
-6.  **Generate Fraud Score & Explain Why:**
-    *   Give a fraud score from 0 (safe) to 100 (very risky).
-    *   Write 2-3 simple reasons why this claim looks suspicious. Use easy words. Explain like you're talking to someone who doesn't know about cars.
-    *   Consider if the CUMULATIVE EFFECTS totals differ significantly from calculated totals
+6. **Generate Change Summary:**
+   
+   Create a changesSummary object with:
+   - totalNewItems: Count of new items added
+   - totalRemovedItems: Count of items removed
+   - totalChangedItems: Count of items modified
+   - totalUnchangedItems: Count of unchanged items
+   - totalAmountChange: Dollar difference in totals
+   - percentageChange: Percentage change in total
 
-7.  **Explain What Changed:**
-    *   Write a simple summary of what changed between the two bills.
-    *   Use easy words. Explain what parts were added, what costs went up, and why.
-    *   Don't use technical car terms. Say "car part" instead of "OEM component."
+7. **Invoice Summary:**
+   
+   Write a clear, detailed summary focusing on:
+   - What specific items were added (organized by category)
+   - What specific items were removed (organized by category)
+   - What items had price or quantity changes (organized by category)
+   - The overall impact on the total cost
+   - **IMPORTANT:** Mention the Workfile Total or NET COST OF REPAIRS as the complete total
+   - Clarify that this total includes the original estimate plus all supplements
+   - Organize the summary by categories for clarity
+   - Use clear, simple language
+   - Focus on facts, not fraud detection
 
 IMPORTANT NOTES:
-- For ORIGINAL packages: "Net Cost of Repairs" is the MOST ACCURATE total
-- For SUPPLEMENT packages: The CUMULATIVE EFFECTS OF SUPPLEMENT(S) section contains the MOST ACCURATE totals
-- Always prioritize these specific values over any other calculations
-- Write all explanations using simple, easy English. Pretend you're explaining to someone who doesn't speak English as their first language. Use short sentences. Avoid big words.
+- This is NOT a fraud detection analysis
+- Focus ONLY on documenting what changed between documents
+- **CRITICAL:** Every line item MUST have a category assigned (use "UNCATEGORIZED" if no category is visible)
+- Preserve the hierarchical structure of categories and their line items
+- Be precise in matching line items within their categories
+- Track all changes accurately
+- Set fraudScore to 0 and fraudReasons to empty array (not used)
+- **CRITICAL:** The "Workfile Total" or "NET COST OF REPAIRS" in supplement files represents the COMPLETE claim total (original estimate + all supplements)
+- Always extract and report this complete workfile total for accurate financial reporting
 
 Return ONLY a single, valid JSON object that adheres to the provided schema. Do not include any other text or markdown formatting.`;
 

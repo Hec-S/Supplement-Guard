@@ -69,20 +69,37 @@ export enum SeverityLevel {
 // Original interfaces (maintained for backward compatibility)
 export interface InvoiceLineItem {
   id: string;
+  category?: string; // Category the item belongs to (e.g., 'REAR BUMPER', 'VEHICLE DIAGNOSTICS')
+  lineNumber?: number; // Line number from the invoice
+  operation?: string; // Operation code (e.g., 'S01', 'R&I', 'Repl')
   description: string;
   quantity: number;
   price: number;
   total: number;
+  laborHours?: number; // Labor hours if applicable
+  paintHours?: number; // Paint hours if applicable
   isNew?: boolean;
   isChanged?: boolean;
+  isRemoved?: boolean; // True if item was removed from original
+  // Change tracking fields
+  originalQuantity?: number;
+  originalPrice?: number;
+  originalTotal?: number;
+  quantityChange?: number;
+  priceChange?: number;
+  totalChange?: number;
+  changeType?: 'NEW' | 'REMOVED' | 'QUANTITY_CHANGED' | 'PRICE_CHANGED' | 'BOTH_CHANGED' | 'UNCHANGED';
+  // Enhanced automotive fields
+  partNumber?: string;
+  vehicleSystem?: 'ENGINE' | 'TRANSMISSION' | 'BRAKES' | 'SUSPENSION' | 'ELECTRICAL' | 'BODY' | 'INTERIOR' | 'EXHAUST' | 'COOLING' | 'FUEL' | 'STEERING' | 'HVAC' | 'SAFETY' | 'WHEELS_TIRES' | 'OTHER';
+  partCategory?: 'OEM' | 'AFTERMARKET' | 'LABOR' | 'PAINT_MATERIALS' | 'CONSUMABLES' | 'RENTAL' | 'STORAGE' | 'OTHER';
+  isOEM?: boolean;
+  laborRate?: number;
 }
 
 // Enhanced Automotive Line Item Interface
 export interface AutomotiveLineItem extends InvoiceLineItem {
-  // Automotive-specific fields
-  partNumber?: string;
-  vehicleSystem: VehicleSystem;
-  partCategory: PartCategory;
+  // Additional automotive-specific fields
   laborCode?: string;
   estimatedLaborHours?: number;
   partCompatibility?: string;
@@ -113,6 +130,14 @@ export interface ClaimData {
   fraudScore: number;
   fraudReasons: string[];
   invoiceSummary: string;
+  changesSummary?: {
+    totalNewItems: number;
+    totalRemovedItems: number;
+    totalChangedItems: number;
+    totalUnchangedItems: number;
+    totalAmountChange: number;
+    percentageChange: number;
+  };
 }
 
 // Enhanced interfaces for comprehensive analysis

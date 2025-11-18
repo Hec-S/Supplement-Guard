@@ -10,6 +10,7 @@ import PremiumPdfTest from './components/PremiumPdfTest';
 import HiddenImageDemo from './components/HiddenImageDemo';
 import ChangeFocusedPdfTest from './components/ChangeFocusedPdfTest';
 import TestEnhancedInvoiceViewer from './components/TestEnhancedInvoiceViewer';
+import { TestImprovedOCR } from './components/TestImprovedOCR';
 import Spinner from './components/Spinner';
 
 const App: React.FC = () => {
@@ -17,13 +18,13 @@ const App: React.FC = () => {
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
   const [showTestMode, setShowTestMode] = useState<boolean>(false);
-  const [testModeType, setTestModeType] = useState<'fraud' | 'pdf' | 'premium' | 'hidden' | 'changes' | 'invoice'>('fraud');
+  const [testModeType, setTestModeType] = useState<'fraud' | 'pdf' | 'premium' | 'hidden' | 'changes' | 'invoice' | 'ocr'>('fraud');
 
   // Check for test mode in URL parameters
   React.useEffect(() => {
     const urlParams = new URLSearchParams(window.location.search);
     const testParam = urlParams.get('test');
-    const testMode = testParam === 'fraud' || testParam === 'pdf' || testParam === 'premium' || testParam === 'hidden' || testParam === 'changes' || testParam === 'invoice' || window.location.pathname.includes('/test');
+    const testMode = testParam === 'fraud' || testParam === 'pdf' || testParam === 'premium' || testParam === 'hidden' || testParam === 'changes' || testParam === 'invoice' || testParam === 'ocr' || window.location.pathname.includes('/test');
     setShowTestMode(testMode);
     if (testParam === 'pdf') {
       setTestModeType('pdf');
@@ -35,6 +36,8 @@ const App: React.FC = () => {
       setTestModeType('changes');
     } else if (testParam === 'invoice') {
       setTestModeType('invoice');
+    } else if (testParam === 'ocr') {
+      setTestModeType('ocr');
     }
   }, []);
 
@@ -84,7 +87,9 @@ const App: React.FC = () => {
                         ? '🤖 AI Change Analysis PDF Test Mode'
                         : testModeType === 'invoice'
                           ? '📊 Enhanced Invoice Viewer Test Mode'
-                          : 'Advanced Fraud Detection Test Mode'
+                          : testModeType === 'ocr'
+                            ? '🔍 Improved OCR Line Item Comparison Test Mode'
+                            : 'Advanced Fraud Detection Test Mode'
                 }
               </h2>
               <p className="text-blue-700 text-sm">
@@ -98,7 +103,9 @@ const App: React.FC = () => {
                         ? 'Testing AI-focused PDF generation that shows only document changes with color coding (red: new, orange: changed).'
                         : testModeType === 'invoice'
                           ? 'Testing enhanced invoice viewer with new column order: Description, Original Price, Price Change, New Price, Status.'
-                          : 'Testing comprehensive fraud detection algorithms with sample data scenarios.'
+                          : testModeType === 'ocr'
+                            ? 'Testing improved OCR that focuses on line item comparison only, tracking what changed between original and supplement packages.'
+                            : 'Testing comprehensive fraud detection algorithms with sample data scenarios.'
                 }
               </p>
               <div className="mt-3 flex gap-2">
@@ -163,6 +170,16 @@ const App: React.FC = () => {
                   📊 Invoice Viewer
                 </button>
                 <button
+                  onClick={() => setTestModeType('ocr')}
+                  className={`px-3 py-1 text-sm rounded transition-colors ${
+                    testModeType === 'ocr'
+                      ? 'bg-teal-600 text-white'
+                      : 'bg-teal-200 text-teal-800 hover:bg-teal-300'
+                  }`}
+                >
+                  🔍 Improved OCR
+                </button>
+                <button
                   onClick={() => setShowTestMode(false)}
                   className="px-3 py-1 bg-red-600 text-white text-sm rounded hover:bg-red-700 transition-colors ml-auto"
                 >
@@ -180,7 +197,9 @@ const App: React.FC = () => {
                     ? <ChangeFocusedPdfTest />
                     : testModeType === 'invoice'
                       ? <TestEnhancedInvoiceViewer />
-                      : <SimplePdfTest />
+                      : testModeType === 'ocr'
+                        ? <TestImprovedOCR />
+                        : <SimplePdfTest />
             }
           </div>
         ) : isLoading ? (
