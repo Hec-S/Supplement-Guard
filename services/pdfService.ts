@@ -68,32 +68,91 @@ export const generatePdfReport = (claimData: ClaimData, comparisonAnalysis?: Com
     doc.line(safeZone, currentY, pageWidth - safeZone, currentY);
     currentY += 15;
 
-    // Contributing Factors Section
+    // Changes Overview Section
     checkPageSpace(60);
     doc.setTextColor(51, 51, 51);
-    addSafeText('Contributing Factors', safeZone, maxContentWidth, 16, 'bold');
+    addSafeText('Changes Overview', safeZone, maxContentWidth, 16, 'bold');
     currentY += 5;
 
-    claimData.fraudReasons.forEach((reason, index) => {
-      const text = `${index + 1}. ${reason}`;
-      addSafeText(text, safeZone, maxContentWidth, 12, 'normal');
+    // Calculate and display key changes
+    const originalTotal = claimData.originalInvoice.total;
+    const supplementTotal = claimData.supplementInvoice.total;
+    const totalDifference = supplementTotal - originalTotal;
+    const percentChange = ((totalDifference / originalTotal) * 100).toFixed(2);
+    
+    // Count new and changed items
+    const newItems = claimData.supplementInvoice.lineItems.filter(item => item.isNew).length;
+    const changedItems = claimData.supplementInvoice.lineItems.filter(item => item.isChanged).length;
+    const unchangedItems = claimData.supplementInvoice.lineItems.filter(item => !item.isNew && !item.isChanged).length;
+    
+    const changePoints = [
+      `• Total amount changed from ${formatCurrency(originalTotal)} to ${formatCurrency(supplementTotal)}`,
+      `• Overall difference: ${formatCurrency(Math.abs(totalDifference))} (${percentChange}%)`,
+      `• ${newItems} new item${newItems !== 1 ? 's' : ''} added to supplement`,
+      `• ${changedItems} item${changedItems !== 1 ? 's' : ''} modified from original`,
+      `• ${unchangedItems} item${unchangedItems !== 1 ? 's' : ''} remained unchanged`
+    ];
+    
+    changePoints.forEach(point => {
+      addSafeText(point, safeZone, maxContentWidth, 12, 'normal');
       currentY += 3;
     });
 
     currentY += 10;
 
-    // Analysis Summary
+    // Document Comparison Summary
     checkPageSpace(60);
-    addSafeText('Analysis Summary:', safeZone, maxContentWidth, 12, 'bold');
+    addSafeText('Document Comparison Summary:', safeZone, maxContentWidth, 12, 'bold');
     currentY += 3;
 
-    const summaryLines = claimData.invoiceSummary.split('\n').filter(line => line.trim() !== '');
-    summaryLines.forEach(line => {
-      const cleanLine = line.replace(/\*\*/g, '').replace(/^- |^\* /, '• ');
-      if (cleanLine.trim()) {
-        addSafeText(cleanLine, safeZone, maxContentWidth, 12, 'normal');
-        currentY += 2;
-      }
+    // Generate neutral comparison points
+    const comparisonPoints = [];
+    
+    // Check for significant new items
+    const significantNewItems = claimData.supplementInvoice.lineItems
+      .filter(item => item.isNew)
+      .slice(0, 3)
+      .map(item => item.description);
+    
+    if (significantNewItems.length > 0) {
+      comparisonPoints.push(`• New items include: ${significantNewItems.join(', ')}`);
+    }
+    
+    // Check for significant price changes
+    const priceChanges = claimData.supplementInvoice.lineItems
+      .filter(item => item.isChanged)
+      .map(item => {
+        const original = claimData.originalInvoice.lineItems.find(
+          orig => orig.description.toLowerCase().trim() === item.description.toLowerCase().trim()
+        );
+        if (original) {
+          const change = item.total - original.total;
+          return { description: item.description, change };
+        }
+        return null;
+      })
+      .filter(item => item !== null)
+      .sort((a, b) => Math.abs(b!.change) - Math.abs(a!.change))
+      .slice(0, 3);
+    
+    if (priceChanges.length > 0) {
+      priceChanges.forEach(item => {
+        if (item) {
+          const changeText = item.change > 0 ? 'increased' : 'decreased';
+          comparisonPoints.push(`• ${item.description}: ${changeText} by ${formatCurrency(Math.abs(item.change))}`);
+        }
+      });
+    }
+    
+    // Add tax and subtotal comparison
+    const taxDiff = claimData.supplementInvoice.tax - claimData.originalInvoice.tax;
+    if (Math.abs(taxDiff) > 0.01) {
+      comparisonPoints.push(`• Tax amount changed by ${formatCurrency(Math.abs(taxDiff))}`);
+    }
+    
+    comparisonPoints.forEach(point => {
+      addSafeText(point, safeZone, maxContentWidth, 12, 'normal');
+      currentY += 2;
     });
 
     currentY += 15;
