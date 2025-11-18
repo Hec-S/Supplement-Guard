@@ -151,6 +151,90 @@ class ImprovedPdfGenerator {
   }
 
   /**
+   * Creates a warranty table with red highlighting for warranty status
+   */
+  private createWarrantyTable(headers: string[], data: string[][]): void {
+    const colWidths = [80, 35, 30, 35]; // Adjusted column widths
+    const startX = this.config.safeZone;
+    
+    // Headers
+    const headerHeight = 8;
+    this.doc.setFillColor(240, 240, 240);
+    this.doc.rect(startX, this.currentY, colWidths.reduce((sum, w) => sum + w, 0), headerHeight, 'F');
+    
+    this.doc.setFontSize(10);
+    this.doc.setFont(undefined, 'bold');
+    this.doc.setTextColor(51, 51, 51);
+    
+    let currentX = startX;
+    headers.forEach((header, index) => {
+      const cellWidth = colWidths[index];
+      const wrappedText = this.doc.splitTextToSize(header, cellWidth - 4);
+      this.doc.text(wrappedText, currentX + 2, this.currentY + 6);
+      currentX += cellWidth;
+    });
+    
+    this.currentY += headerHeight + 2;
+    
+    // Data rows
+    data.forEach((row, rowIndex) => {
+      // Calculate row height based on content
+      let maxRowHeight = 6;
+      const wrappedCells: string[][] = [];
+      
+      row.forEach((cellData, index) => {
+        const cellWidth = colWidths[index];
+        const cellText = String(cellData || '');
+        const wrapped = this.doc.splitTextToSize(cellText, cellWidth - 4);
+        wrappedCells.push(wrapped);
+        maxRowHeight = Math.max(maxRowHeight, wrapped.length * 4 + 2);
+      });
+      
+      // Check if row fits on current page
+      this.checkPageSpace(maxRowHeight);
+      
+      // Draw alternating row background
+      if (rowIndex % 2 === 1) {
+        this.doc.setFillColor(248, 250, 252);
+        this.doc.rect(startX, this.currentY, colWidths.reduce((sum, w) => sum + w, 0), maxRowHeight, 'F');
+      }
+      
+      // Draw cell content with special formatting
+      this.doc.setFontSize(9);
+      
+      currentX = startX;
+      wrappedCells.forEach((cellLines, index) => {
+        // Set red color for "NEEDS WARRANTY" column
+        if (index === 3) {
+          this.doc.setTextColor(255, 0, 0); // Red color
+          this.doc.setFont(undefined, 'bold');
+        } else if (index === 1) {
+          // Color code the work type
+          const workType = row[1];
+          if (workType === 'REPLACEMENT') {
+            this.doc.setTextColor(220, 38, 127); // Pink for replacement
+          } else if (workType === 'REPAIR') {
+            this.doc.setTextColor(234, 88, 12); // Orange for repair
+          } else if (workType === 'NEW PART') {
+            this.doc.setTextColor(59, 130, 246); // Blue for new part
+          } else {
+            this.doc.setTextColor(51, 51, 51); // Default color
+          }
+          this.doc.setFont(undefined, 'bold');
+        } else {
+          this.doc.setTextColor(51, 51, 51); // Default color
+          this.doc.setFont(undefined, 'normal');
+        }
+        
+        this.doc.text(cellLines, currentX + 2, this.currentY + 4);
+        currentX += colWidths[index];
+      });
+      
+      this.currentY += maxRowHeight;
+    });
+  }
+
+  /**
    * Draws table headers with background
    */
   private drawTableHeaders(headers: string[], columnWidths: number[], startX: number): void {
@@ -392,6 +476,62 @@ class ImprovedPdfGenerator {
       ]);
       
       this.createTable(supplementHeaders, supplementData, [70, 15, 25, 25, 25]);
+      
+      // Needs Warranty Section
+      this.currentY += 10;
+      this.checkPageSpace(80);
+      
+      // Filter items that need warranty (contain "Repr", "Repl", or "New" in description)
+      const warrantyItems = [...claimData.originalInvoice.lineItems, ...claimData.supplementInvoice.lineItems]
+        .filter(item => {
+          const desc = item.description.toLowerCase();
+          return desc.includes('repr') || desc.includes('repl') || desc.includes('new') || desc.includes('rpr');
+        })
+        // Remove duplicates based on description
+        .filter((item, index, self) =>
+          index === self.findIndex(i => i.description.toLowerCase() === item.description.toLowerCase())
+        );
+      
+      if (warrantyItems.length > 0) {
+        // Section title
+        this.addText('NEEDS WARRANTY', this.config.safeZone, this.currentY, this.config.maxContentWidth, {
+          fontSize: 16,
+          fontStyle: 'bold',
+          color: [51, 51, 51]
+        });
+        this.currentY += 8;
+        
+        // Warranty notice
+        this.addText('The following items require warranty coverage as they involve repairs, replacements, or new parts:',
+          this.config.safeZone, this.currentY, this.config.maxContentWidth, {
+          fontSize: 10,
+          color: [102, 102, 102]
+        });
+        this.currentY += 8;
+        
+        // Create warranty items table
+        const warrantyHeaders = ['Description', 'Type', 'Amount', 'Warranty Status'];
+        const warrantyData = warrantyItems.map(item => {
+          // Determine the type of work
+          const desc = item.description.toLowerCase();
+          let workType = '';
+          if (desc.includes('repl')) workType = 'REPLACEMENT';
+          else if (desc.includes('repr') || desc.includes('rpr')) workType = 'REPAIR';
+          else if (desc.includes('new')) workType = 'NEW PART';
+          else workType = 'SERVICE';
+          
+          return [
+            item.description,
+            workType,
+            formatCurrency(item.total),
+            'NEEDS WARRANTY'
+          ];
+        });
+        
+        // Create warranty table with special formatting
+        this.createWarrantyTable(warrantyHeaders, warrantyData);
+        this.currentY += 15;
+      }
       
       // Disclaimer Section
       this.currentY += 10;

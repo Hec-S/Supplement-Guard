@@ -208,6 +208,179 @@ export const generatePdfReport = (claimData: ClaimData, comparisonAnalysis?: Com
     createImprovedTableWithColors(doc, supplementHeaders, supplementData, safeZone, currentY, maxContentWidth, sortedSupplementItems, claimData.originalInvoice.lineItems);
     currentY += (supplementData.length + 1) * 8 + 10;
 
+    // Needs Warranty Section
+    currentY += 10;
+    checkPageSpace(80);
+    
+    // Filter items that need warranty (contain "Repr", "Repl", or "New" in description)
+    const warrantyItems = [...claimData.originalInvoice.lineItems, ...claimData.supplementInvoice.lineItems]
+      .filter(item => {
+        const desc = item.description.toLowerCase();
+        return desc.includes('repr') || desc.includes('repl') || desc.includes('new');
+      })
+      // Remove duplicates based on description
+      .filter((item, index, self) =>
+        index === self.findIndex(i => i.description.toLowerCase() === item.description.toLowerCase())
+      );
+    
+    if (warrantyItems.length > 0) {
+      // Section title
+      doc.setTextColor(51, 51, 51);
+      doc.setFont(undefined, 'bold');
+      addSafeText('NEEDS WARRANTY', safeZone, maxContentWidth, 16, 'bold');
+      currentY += 8;
+      
+      // Warranty notice
+      doc.setTextColor(102, 102, 102);
+      doc.setFont(undefined, 'normal');
+      doc.setFontSize(10);
+      const warrantyNotice = 'The following items require warranty coverage as they involve repairs, replacements, or new parts:';
+      const noticeLines = doc.splitTextToSize(warrantyNotice, maxContentWidth);
+      doc.text(noticeLines, safeZone, currentY);
+      currentY += noticeLines.length * 4 + 8;
+      
+      // Create warranty items table
+      const warrantyHeaders = ['Description', 'Type', 'Amount', 'Warranty Status'];
+      const warrantyData = warrantyItems.map(item => {
+        // Determine the type of work
+        const desc = item.description.toLowerCase();
+        let workType = '';
+        if (desc.includes('repl')) workType = 'REPLACEMENT';
+        else if (desc.includes('repr') || desc.includes('rpr')) workType = 'REPAIR';
+        else if (desc.includes('new')) workType = 'NEW PART';
+        else workType = 'SERVICE';
+        
+        return [
+          item.description,
+          workType,
+          formatCurrency(item.total),
+          'NEEDS WARRANTY'
+        ];
+      });
+      
+      // Create table with red "NEEDS WARRANTY" text
+      createWarrantyTable(doc, warrantyHeaders, warrantyData, safeZone, currentY, maxContentWidth);
+      currentY += (warrantyData.length + 1) * 8 + 15;
+    }
+
+    // Helper function to create warranty table with red highlighting
+    function createWarrantyTable(
+      doc: jsPDF,
+      headers: string[],
+      data: string[][],
+      x: number,
+      y: number,
+      width: number
+    ): void {
+      const colWidths = [80, 35, 30, 35]; // Adjusted column widths
+      let tableY = y;
+      
+      // Check if table fits on current page
+      const estimatedTableHeight = (data.length + 1) * 10;
+      if (tableY + estimatedTableHeight > pageHeight - safeZone) {
+        doc.addPage();
+        tableY = safeZone;
+        currentY = safeZone;
+      }
+      
+      // Headers
+      doc.setFillColor(240, 240, 240);
+      doc.rect(x, tableY, width, 10, 'F');
+      doc.setFont(undefined, 'bold');
+      doc.setTextColor(51, 51, 51);
+      doc.setFontSize(10);
+      
+      let currentX = x;
+      headers.forEach((header, i) => {
+        const cellWidth = colWidths[i];
+        const wrappedHeader = doc.splitTextToSize(header, cellWidth - 4);
+        doc.text(wrappedHeader, currentX + 2, tableY + 7);
+        currentX += cellWidth;
+      });
+      tableY += 12;
+
+      // Data rows
+      doc.setFont(undefined, 'normal');
+      doc.setFontSize(9);
+      
+      data.forEach((row, rowIndex) => {
+        // Calculate row height based on content
+        let maxRowHeight = 8;
+        const wrappedCells: string[][] = [];
+        
+        row.forEach((cell, colIndex) => {
+          const cellWidth = colWidths[colIndex] - 4;
+          const cellText = String(cell || '');
+          const wrapped = doc.splitTextToSize(cellText, cellWidth);
+          wrappedCells.push(wrapped);
+          maxRowHeight = Math.max(maxRowHeight, wrapped.length * 4 + 4);
+        });
+        
+        // Check if row fits on current page
+        if (tableY + maxRowHeight > pageHeight - safeZone) {
+          doc.addPage();
+          tableY = safeZone;
+          
+          // Redraw headers on new page
+          doc.setFillColor(240, 240, 240);
+          doc.rect(x, tableY, width, 10, 'F');
+          doc.setFont(undefined, 'bold');
+          doc.setFontSize(10);
+          doc.setTextColor(51, 51, 51);
+          
+          currentX = x;
+          headers.forEach((header, i) => {
+            const cellWidth = colWidths[i];
+            const wrappedHeader = doc.splitTextToSize(header, cellWidth - 4);
+            doc.text(wrappedHeader, currentX + 2, tableY + 7);
+            currentX += cellWidth;
+          });
+          tableY += 12;
+          doc.setFont(undefined, 'normal');
+          doc.setFontSize(9);
+        }
+        
+        // Draw alternating row background
+        if (rowIndex % 2 === 1) {
+          doc.setFillColor(248, 250, 252);
+          doc.rect(x, tableY, width, maxRowHeight, 'F');
+        }
+        
+        // Draw cell content with red color for warranty status
+        currentX = x;
+        wrappedCells.forEach((cellLines, colIndex) => {
+          // Set red color for "NEEDS WARRANTY" column
+          if (colIndex === 3) {
+            doc.setTextColor(255, 0, 0); // Red color
+            doc.setFont(undefined, 'bold');
+          } else if (colIndex === 1) {
+            // Color code the work type
+            const workType = row[1];
+            if (workType === 'REPLACEMENT') {
+              doc.setTextColor(220, 38, 127); // Pink for replacement
+            } else if (workType === 'REPAIR') {
+              doc.setTextColor(234, 88, 12); // Orange for repair
+            } else if (workType === 'NEW PART') {
+              doc.setTextColor(59, 130, 246); // Blue for new part
+            } else {
+              doc.setTextColor(51, 51, 51); // Default color
+            }
+            doc.setFont(undefined, 'bold');
+          } else {
+            doc.setTextColor(51, 51, 51); // Default color
+            doc.setFont(undefined, 'normal');
+          }
+          
+          doc.text(cellLines, currentX + 2, tableY + 6);
+          currentX += colWidths[colIndex];
+        });
+        
+        tableY += maxRowHeight;
+      });
+      
+      currentY = tableY;
+    }
+
     // Disclaimer Section
     currentY += 10;
     checkPageSpace(100);
