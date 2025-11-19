@@ -125,6 +125,14 @@ export interface Invoice {
 
 export interface ClaimData {
   id: string;
+  claimNumber?: string;  // Claim # from top right of first page
+  vehicleInfo?: {        // Vehicle information from Vehicle section
+    year?: string;
+    make?: string;
+    model?: string;
+    vin?: string;
+    description?: string; // Full vehicle description if available
+  };
   originalInvoice: Invoice;
   supplementInvoice: Invoice;
   fraudScore: number;

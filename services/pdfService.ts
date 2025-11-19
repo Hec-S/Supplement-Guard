@@ -53,13 +53,39 @@ export const generatePdfReport = (claimData: ClaimData, comparisonAnalysis?: Com
     
     currentY += 5;
     doc.setTextColor(102, 102, 102); // Gray color
-    const claimText = `Claim ID: ${claimData.id}`;
+    
+    // Use actual Claim # if available, otherwise fall back to generated ID
+    const claimText = claimData.claimNumber
+      ? `Claim #: ${claimData.claimNumber}`
+      : `Claim ID: ${claimData.id}`;
+    
+    // Create vehicle text if vehicle info is available
+    let vehicleText = '';
+    if (claimData.vehicleInfo) {
+      const { year, make, model, vin } = claimData.vehicleInfo;
+      const vehicleDescription = [year, make, model].filter(Boolean).join(' ');
+      if (vehicleDescription) {
+        vehicleText = `Vehicle: ${vehicleDescription}`;
+        if (vin) {
+          vehicleText += ` | VIN: ${vin}`;
+        }
+      }
+    }
+    
     const dateText = `Generated: ${new Date().toLocaleDateString()}`;
     
+    // Display claim number
     addSafeText(claimText, safeZone, maxContentWidth / 2, 12, 'normal');
+    
+    // Display vehicle info if available
+    if (vehicleText) {
+      currentY += 1;
+      addSafeText(vehicleText, safeZone, maxContentWidth * 0.7, 11, 'normal');
+    }
+    
     // Position date text properly
     const dateWidth = doc.getTextWidth(dateText);
-    doc.text(dateText, pageWidth - safeZone - dateWidth, currentY - 5);
+    doc.text(dateText, pageWidth - safeZone - dateWidth, currentY - (vehicleText ? 10 : 5));
 
     // Line separator
     currentY += 10;
@@ -100,62 +126,56 @@ export const generatePdfReport = (claimData: ClaimData, comparisonAnalysis?: Com
 
     currentY += 10;
 
-    // Document Comparison Summary
-    checkPageSpace(60);
-    addSafeText('Document Comparison Summary:', safeZone, maxContentWidth, 12, 'bold');
-    currentY += 3;
+    // Disclaimer Section (moved here from bottom)
+    checkPageSpace(100);
+    
+    // Disclaimer box with border
+    doc.setDrawColor(200, 200, 200);
+    doc.setFillColor(250, 250, 250);
+    
+    // Calculate disclaimer height
+    const disclaimerTitle = 'IMPORTANT DISCLAIMER';
+    const disclaimerText = `ALL ESTIMATE AND SUPPLEMENT PAYMENTS WILL BE ISSUED TO THE VEHICLE OWNER.
 
-    // Generate neutral comparison points
-    const comparisonPoints = [];
+The repair contract exists solely between the vehicle owner and the repair facility. The insurance company is not involved in this agreement and does not assume responsibility for repair quality, timelines, or costs. All repair-related disputes must be handled directly with the repair facility.
+
+Please note: Any misrepresentation of repairs, labor, parts, or supplements—including unnecessary operations or inflated charges—may constitute insurance fraud and will result in further review or investigation.`;
     
-    // Check for significant new items
-    const significantNewItems = claimData.supplementInvoice.lineItems
-      .filter(item => item.isNew)
-      .slice(0, 3)
-      .map(item => item.description);
+    // Draw disclaimer background
+    const disclaimerStartY = currentY;
     
-    if (significantNewItems.length > 0) {
-      comparisonPoints.push(`• New items include: ${significantNewItems.join(', ')}`);
-    }
+    // Add disclaimer title
+    doc.setTextColor(139, 0, 0); // Dark red color for title
+    doc.setFont(undefined, 'bold');
+    addSafeText(disclaimerTitle, safeZone, maxContentWidth, 14, 'bold');
+    currentY += 8;
     
-    // Check for significant price changes
-    const priceChanges = claimData.supplementInvoice.lineItems
-      .filter(item => item.isChanged)
-      .map(item => {
-        const original = claimData.originalInvoice.lineItems.find(
-          orig => orig.description.toLowerCase().trim() === item.description.toLowerCase().trim()
-        );
-        if (original) {
-          const change = item.total - original.total;
-          return { description: item.description, change };
-        }
-        return null;
-      })
-      .filter(item => item !== null)
-      .sort((a, b) => Math.abs(b!.change) - Math.abs(a!.change))
-      .slice(0, 3);
+    // Add disclaimer content
+    doc.setTextColor(51, 51, 51); // Dark gray for text
+    doc.setFont(undefined, 'normal');
+    doc.setFontSize(10);
     
-    if (priceChanges.length > 0) {
-      priceChanges.forEach(item => {
-        if (item) {
-          const changeText = item.change > 0 ? 'increased' : 'decreased';
-          comparisonPoints.push(`• ${item.description}: ${changeText} by ${formatCurrency(Math.abs(item.change))}`);
-        }
-      });
-    }
-    
-    // Add tax and subtotal comparison
-    const taxDiff = claimData.supplementInvoice.tax - claimData.originalInvoice.tax;
-    if (Math.abs(taxDiff) > 0.01) {
-      comparisonPoints.push(`• Tax amount changed by ${formatCurrency(Math.abs(taxDiff))}`);
-    }
-    
-    comparisonPoints.forEach(point => {
-      addSafeText(point, safeZone, maxContentWidth, 12, 'normal');
-      currentY += 2;
+    // Split disclaimer into paragraphs for better formatting
+    const disclaimerParagraphs = disclaimerText.split('\n\n');
+    disclaimerParagraphs.forEach((paragraph, index) => {
+      const lines = doc.splitTextToSize(paragraph, maxContentWidth - 10);
+      checkPageSpace(lines.length * 4 + 5);
+      
+      // Add some padding for readability
+      if (index > 0) currentY += 5;
+      
+      doc.text(lines, safeZone + 5, currentY);
+      currentY += lines.length * 4;
     });
-
-    currentY += 15;
+    
+    // Draw border around disclaimer
+    const disclaimerEndY = currentY + 5;
+    const disclaimerHeight = disclaimerEndY - disclaimerStartY;
+    doc.setDrawColor(200, 200, 200);
+    doc.setLineWidth(0.5);
+    doc.rect(safeZone - 5, disclaimerStartY - 5, maxContentWidth + 10, disclaimerHeight, 'S');
+    
+    currentY = disclaimerEndY + 15;
 
     // Original Invoice Section - Check if categories exist
     checkPageSpace(100);
@@ -610,58 +630,6 @@ export const generatePdfReport = (claimData: ClaimData, comparisonAnalysis?: Com
       
       currentY = tableY;
     }
-
-    // Disclaimer Section
-    currentY += 10;
-    checkPageSpace(100);
-    
-    // Disclaimer box with border
-    doc.setDrawColor(200, 200, 200);
-    doc.setFillColor(250, 250, 250);
-    
-    // Calculate disclaimer height
-    const disclaimerTitle = 'IMPORTANT DISCLAIMER';
-    const disclaimerText = `ALL ESTIMATE AND SUPPLEMENT PAYMENTS WILL BE ISSUED TO THE VEHICLE OWNER.
-
-The repair contract exists solely between the vehicle owner and the repair facility. The insurance company is not involved in this agreement and does not assume responsibility for repair quality, timelines, or costs. All repair-related disputes must be handled directly with the repair facility.
-
-Please note: Any misrepresentation of repairs, labor, parts, or supplements—including unnecessary operations or inflated charges—may constitute insurance fraud and will result in further review or investigation.`;
-    
-    // Draw disclaimer background
-    const disclaimerStartY = currentY;
-    
-    // Add disclaimer title
-    doc.setTextColor(139, 0, 0); // Dark red color for title
-    doc.setFont(undefined, 'bold');
-    addSafeText(disclaimerTitle, safeZone, maxContentWidth, 14, 'bold');
-    currentY += 8;
-    
-    // Add disclaimer content
-    doc.setTextColor(51, 51, 51); // Dark gray for text
-    doc.setFont(undefined, 'normal');
-    doc.setFontSize(10);
-    
-    // Split disclaimer into paragraphs for better formatting
-    const disclaimerParagraphs = disclaimerText.split('\n\n');
-    disclaimerParagraphs.forEach((paragraph, index) => {
-      const lines = doc.splitTextToSize(paragraph, maxContentWidth - 10);
-      checkPageSpace(lines.length * 4 + 5);
-      
-      // Add some padding for readability
-      if (index > 0) currentY += 5;
-      
-      doc.text(lines, safeZone + 5, currentY);
-      currentY += lines.length * 4;
-    });
-    
-    // Draw border around disclaimer
-    const disclaimerEndY = currentY + 5;
-    const disclaimerHeight = disclaimerEndY - disclaimerStartY;
-    doc.setDrawColor(200, 200, 200);
-    doc.setLineWidth(0.5);
-    doc.rect(safeZone - 5, disclaimerStartY - 5, maxContentWidth + 10, disclaimerHeight, 'S');
-    
-    currentY = disclaimerEndY + 10;
 
     // Helper function to create improved tables with color coding
     function createImprovedTableWithColors(

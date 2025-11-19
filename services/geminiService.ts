@@ -71,6 +71,22 @@ const claimDataSchema = {
   type: Type.OBJECT,
   properties: {
     id: { type: Type.STRING, description: "Generate a unique claim ID, e.g., CLM-2024-XXXXXX" },
+    claimNumber: {
+      type: Type.STRING,
+      nullable: true,
+      description: "The actual Claim # from the document, typically found in the top right of the first page"
+    },
+    vehicleInfo: {
+      type: Type.OBJECT,
+      nullable: true,
+      properties: {
+        year: { type: Type.STRING, nullable: true, description: "Vehicle year" },
+        make: { type: Type.STRING, nullable: true, description: "Vehicle make (e.g., Toyota, Ford)" },
+        model: { type: Type.STRING, nullable: true, description: "Vehicle model (e.g., Camry, F-150)" },
+        vin: { type: Type.STRING, nullable: true, description: "Vehicle Identification Number" },
+        description: { type: Type.STRING, nullable: true, description: "Full vehicle description if available" }
+      }
+    },
     originalInvoice: invoiceSchema,
     supplementInvoice: invoiceSchema,
     // Change tracking summary
@@ -211,11 +227,29 @@ export const analyzeClaimPackage = async (
   const prompt = `You are a meticulous document analyst with exceptional Optical Character Recognition (OCR) capabilities specializing in automotive repair invoices. Your primary goal is to accurately extract and compare LINE ITEMS WITH THEIR CATEGORIES between original and supplement claim packages.
 
 Your task is to:
-1. Extract all line items from both documents WITH THEIR CATEGORIES
-2. Compare them to identify what changed
-3. Track additions, removals, and modifications
-4. Extract the COMPLETE workfile total from supplement (estimate + all supplements)
-5. Return structured data showing these changes
+1. Extract CLAIM NUMBER and VEHICLE INFORMATION from the documents
+2. Extract all line items from both documents WITH THEIR CATEGORIES
+3. Compare them to identify what changed
+4. Track additions, removals, and modifications
+5. Extract the COMPLETE workfile total from supplement (estimate + all supplements)
+6. Return structured data showing these changes
+
+CRITICAL METADATA EXTRACTION:
+**CLAIM NUMBER:**
+- Look for "Claim #", "Claim Number", or "Claim No." typically in the TOP RIGHT of the FIRST PAGE
+- This is usually a numeric or alphanumeric identifier
+- Common formats: 6-10 digits, may include letters (e.g., "123456", "ABC123456", "2024-123456")
+- If multiple claim numbers exist, use the most prominent one
+
+**VEHICLE INFORMATION:**
+- Look for a "Vehicle" section or header, typically near the top of the document
+- Extract:
+  • Year (4 digits, e.g., "2022")
+  • Make (manufacturer, e.g., "Toyota", "Ford", "Honda")
+  • Model (e.g., "Camry", "F-150", "Accord")
+  • VIN (17-character Vehicle Identification Number)
+  • Full description if available (e.g., "2022 Toyota Camry LE")
+- The vehicle section may also be labeled as "Vehicle Info", "Auto Info", or similar
 
 CRITICAL TOTAL EXTRACTION:
 - In the SUPPLEMENT file, the "Workfile Total" or "NET COST OF REPAIRS" shows the COMPLETE total
@@ -225,7 +259,12 @@ CRITICAL TOTAL EXTRACTION:
 
 Follow these instructions precisely:
 
-1. **CATEGORY AND LINE ITEM OCR and Extraction:**
+1. **METADATA EXTRACTION (FIRST PRIORITY):**
+   - Scan the TOP RIGHT of the first page for Claim #
+   - Scan the top portion of documents for Vehicle section
+   - Extract all available vehicle details
+
+2. **CATEGORY AND LINE ITEM OCR and Extraction:**
    
    **CRITICAL: Identify CATEGORIES and assign each line item to its category**
    
@@ -255,7 +294,7 @@ Follow these instructions precisely:
    - Operations: MISCELLANEOUS OPERATIONS, OTHER CHARGES, PAINT OPERATIONS, etc.
    - Materials: PAINT MATERIALS, CONSUMABLES, etc.
 
-2. **Line Item Matching and Comparison:**
+3. **Line Item Matching and Comparison:**
    
    **CRITICAL: Compare LINE ITEMS between documents, preserving category structure**
    
@@ -284,7 +323,7 @@ Follow these instructions precisely:
         - Items identical in both documents
         - Same quantity, price, and total
 
-3. **Change Tracking Details:**
+4. **Change Tracking Details:**
    
    For CHANGED items, track:
    - originalQuantity, originalPrice, originalTotal
@@ -305,7 +344,7 @@ Follow these instructions precisely:
    - changeType: "UNCHANGED"
    - All change fields should be 0
 
-4. **Automotive Part Classification (Optional but Helpful):**
+5. **Automotive Part Classification (Optional but Helpful):**
    
    For better tracking, classify parts when possible:
    - Part numbers (OEM or aftermarket)
@@ -313,7 +352,7 @@ Follow these instructions precisely:
    - Part category (OEM, AFTERMARKET, LABOR, etc.)
    - Labor hours and rates if applicable
 
-5. **Document Totals (After Line Item Analysis):**
+6. **Document Totals (After Line Item Analysis):**
    
    After processing line items, extract totals:
    
@@ -330,7 +369,7 @@ Follow these instructions precisely:
    
    **IMPORTANT:** The "Workfile Total" or "NET COST OF REPAIRS" in the supplement represents the COMPLETE total including the original estimate PLUS all supplements. This is the TRUE final amount.
 
-6. **Generate Change Summary:**
+7. **Generate Change Summary:**
    
    Create a changesSummary object with:
    - totalNewItems: Count of new items added
@@ -340,7 +379,7 @@ Follow these instructions precisely:
    - totalAmountChange: Dollar difference in totals
    - percentageChange: Percentage change in total
 
-7. **Invoice Summary:**
+8. **Invoice Summary:**
    
    Write a clear, detailed summary focusing on:
    - What specific items were added (organized by category)
@@ -354,6 +393,7 @@ Follow these instructions precisely:
    - Focus on facts, not fraud detection
 
 IMPORTANT NOTES:
+- **ALWAYS extract Claim # and Vehicle information FIRST** - these are critical for identification
 - This is NOT a fraud detection analysis
 - Focus ONLY on documenting what changed between documents
 - **CRITICAL:** Every line item MUST have a category assigned (use "UNCATEGORIZED" if no category is visible)

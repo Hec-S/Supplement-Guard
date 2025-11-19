@@ -356,9 +356,37 @@ class ImprovedPdfGenerator {
       
       this.currentY += 5;
       
-      // Claim info
-      this.addText(`Claim ID: ${claimData.id}`, this.config.safeZone, this.currentY, this.config.maxContentWidth / 2);
-      this.addText(`Generated: ${new Date().toLocaleDateString()}`, this.config.pageWidth - this.config.safeZone - 60, this.currentY - this.config.lineHeight, 60, {
+      // Use actual Claim # if available, otherwise fall back to generated ID
+      const claimText = claimData.claimNumber
+        ? `Claim #: ${claimData.claimNumber}`
+        : `Claim ID: ${claimData.id}`;
+      
+      // Create vehicle text if vehicle info is available
+      let vehicleText = '';
+      if (claimData.vehicleInfo) {
+        const { year, make, model, vin } = claimData.vehicleInfo;
+        const vehicleDescription = [year, make, model].filter(Boolean).join(' ');
+        if (vehicleDescription) {
+          vehicleText = `Vehicle: ${vehicleDescription}`;
+          if (vin) {
+            vehicleText += ` | VIN: ${vin}`;
+          }
+        }
+      }
+      
+      // Display claim number
+      this.addText(claimText, this.config.safeZone, this.currentY, this.config.maxContentWidth / 2);
+      
+      // Display vehicle info if available
+      if (vehicleText) {
+        this.currentY += 1;
+        this.addText(vehicleText, this.config.safeZone, this.currentY, this.config.maxContentWidth * 0.7, {
+          fontSize: 11
+        });
+      }
+      
+      // Display date
+      this.addText(`Generated: ${new Date().toLocaleDateString()}`, this.config.pageWidth - this.config.safeZone - 60, this.currentY - (vehicleText ? this.config.lineHeight * 2 : this.config.lineHeight), 60, {
         align: 'right'
       });
       
@@ -393,58 +421,48 @@ class ImprovedPdfGenerator {
       
       this.currentY += 10;
       
-      // Document Comparison Summary
-      this.addSectionHeader('Document Comparison Summary');
+      // Disclaimer Section (moved here from bottom)
+      this.checkPageSpace(100);
       
-      // Generate neutral comparison points
-      const comparisonPoints = [];
-      
-      // Check for significant new items
-      const significantNewItems = claimData.supplementInvoice.lineItems
-        .filter(item => item.isNew)
-        .slice(0, 3)
-        .map(item => item.description);
-      
-      if (significantNewItems.length > 0) {
-        comparisonPoints.push(`• New items include: ${significantNewItems.join(', ')}`);
-      }
-      
-      // Check for significant price changes
-      const priceChanges = claimData.supplementInvoice.lineItems
-        .filter(item => item.isChanged)
-        .map(item => {
-          const original = claimData.originalInvoice.lineItems.find(
-            orig => orig.description.toLowerCase().trim() === item.description.toLowerCase().trim()
-          );
-          if (original) {
-            const change = item.total - original.total;
-            return { description: item.description, change };
-          }
-          return null;
-        })
-        .filter(item => item !== null)
-        .sort((a, b) => Math.abs(b!.change) - Math.abs(a!.change))
-        .slice(0, 3);
-      
-      if (priceChanges.length > 0) {
-        priceChanges.forEach(item => {
-          if (item) {
-            const changeText = item.change > 0 ? 'increased' : 'decreased';
-            comparisonPoints.push(`• ${item.description}: ${changeText} by ${formatCurrency(Math.abs(item.change))}`);
-          }
-        });
-      }
-      
-      // Add tax and subtotal comparison
-      const taxDiff = claimData.supplementInvoice.tax - claimData.originalInvoice.tax;
-      if (Math.abs(taxDiff) > 0.01) {
-        comparisonPoints.push(`• Tax amount changed by ${formatCurrency(Math.abs(taxDiff))}`);
-      }
-      
-      comparisonPoints.forEach(point => {
-        this.addText(point, this.config.safeZone, this.currentY, this.config.maxContentWidth);
-        this.currentY += 2;
+      // Disclaimer title
+      this.doc.setTextColor(139, 0, 0); // Dark red color for title
+      this.addText('IMPORTANT DISCLAIMER', this.config.safeZone, this.currentY, this.config.maxContentWidth, {
+        fontSize: 14,
+        fontStyle: 'bold',
+        color: [139, 0, 0]
       });
+      
+      this.currentY += 8;
+      
+      // Disclaimer content
+      const disclaimerText = `ALL ESTIMATE AND SUPPLEMENT PAYMENTS WILL BE ISSUED TO THE VEHICLE OWNER.
+
+The repair contract exists solely between the vehicle owner and the repair facility. The insurance company is not involved in this agreement and does not assume responsibility for repair quality, timelines, or costs. All repair-related disputes must be handled directly with the repair facility.
+
+Please note: Any misrepresentation of repairs, labor, parts, or supplements—including unnecessary operations or inflated charges—may constitute insurance fraud and will result in further review or investigation.`;
+      
+      // Draw disclaimer box with border
+      const disclaimerStartY = this.currentY - 10;
+      
+      // Split disclaimer into paragraphs for better formatting
+      const disclaimerParagraphs = disclaimerText.split('\n\n');
+      disclaimerParagraphs.forEach((paragraph, index) => {
+        if (index > 0) this.currentY += 5;
+        
+        this.addText(paragraph, this.config.safeZone + 5, this.currentY, this.config.maxContentWidth - 10, {
+          fontSize: 10,
+          color: [51, 51, 51]
+        });
+      });
+      
+      // Draw border around disclaimer
+      const disclaimerEndY = this.currentY + 5;
+      const disclaimerHeight = disclaimerEndY - disclaimerStartY;
+      this.doc.setDrawColor(200, 200, 200);
+      this.doc.setLineWidth(0.5);
+      this.doc.rect(this.config.safeZone - 5, disclaimerStartY, this.config.maxContentWidth + 10, disclaimerHeight, 'S');
+      
+      this.currentY = disclaimerEndY + 15;
       
       // Original Invoice Section
       this.addSectionHeader('Original Invoice');
@@ -599,50 +617,6 @@ class ImprovedPdfGenerator {
         this.createWarrantyTable(warrantyHeaders, warrantyData);
         this.currentY += 15;
       }
-      
-      // Disclaimer Section
-      this.currentY += 10;
-      this.checkPageSpace(100);
-      
-      // Disclaimer title
-      this.doc.setTextColor(139, 0, 0); // Dark red color for title
-      this.addText('IMPORTANT DISCLAIMER', this.config.safeZone, this.currentY, this.config.maxContentWidth, {
-        fontSize: 14,
-        fontStyle: 'bold',
-        color: [139, 0, 0]
-      });
-      
-      this.currentY += 8;
-      
-      // Disclaimer content
-      const disclaimerText = `ALL ESTIMATE AND SUPPLEMENT PAYMENTS WILL BE ISSUED TO THE VEHICLE OWNER.
-
-The repair contract exists solely between the vehicle owner and the repair facility. The insurance company is not involved in this agreement and does not assume responsibility for repair quality, timelines, or costs. All repair-related disputes must be handled directly with the repair facility.
-
-Please note: Any misrepresentation of repairs, labor, parts, or supplements—including unnecessary operations or inflated charges—may constitute insurance fraud and will result in further review or investigation.`;
-      
-      // Draw disclaimer box with border
-      const disclaimerStartY = this.currentY - 10;
-      
-      // Split disclaimer into paragraphs for better formatting
-      const disclaimerParagraphs = disclaimerText.split('\n\n');
-      disclaimerParagraphs.forEach((paragraph, index) => {
-        if (index > 0) this.currentY += 5;
-        
-        this.addText(paragraph, this.config.safeZone + 5, this.currentY, this.config.maxContentWidth - 10, {
-          fontSize: 10,
-          color: [51, 51, 51]
-        });
-      });
-      
-      // Draw border around disclaimer
-      const disclaimerEndY = this.currentY + 5;
-      const disclaimerHeight = disclaimerEndY - disclaimerStartY;
-      this.doc.setDrawColor(200, 200, 200);
-      this.doc.setLineWidth(0.5);
-      this.doc.rect(this.config.safeZone - 5, disclaimerStartY, this.config.maxContentWidth + 10, disclaimerHeight, 'S');
-      
-      this.currentY = disclaimerEndY + 10;
       
       // Add page numbers and footers
       this.addPageNumbersAndFooters();
