@@ -269,6 +269,90 @@ Your task is to:
 6. Extract the COMPLETE workfile total from supplement (estimate + all supplements)
 7. Return structured data showing these changes
 
+═══════════════════════════════════════════════════════════════════════════════
+🔧 AUTO-DAMAGE ESTIMATE TERMINOLOGY REFERENCE 🔧
+═══════════════════════════════════════════════════════════════════════════════
+
+**SUPPLEMENT CODES:**
+When you see codes like S01, S02, S03, S04, S05 in the operation column:
+- S01 = Supplement 1 (first supplement to original estimate)
+- S02 = Supplement 2 (second supplement)
+- S03 = Supplement 3 (third supplement)
+- S04 = Supplement 4 (fourth supplement)
+- S05 = Supplement 5 (fifth supplement)
+- If NO supplement code appears, the operation is part of the ORIGINAL estimate
+
+**LABOR OPERATION ABBREVIATIONS:**
+- Rpr = Repair (fix existing part)
+- Repl = Replace (remove old part, install new part)
+- R&I = Remove and Install (remove part, then reinstall SAME part)
+- R&R = Remove and Replace (remove old part, replace with new part)
+- Refn = Refinish (paint-related work)
+- Blnd = Blend (blend paint into adjacent panels for color match)
+
+**LABOR CATEGORIES (letter next to labor time):**
+- M = Mechanical labor (engine, transmission, drivetrain work)
+- S = Structural labor (frame, unibody, structural repairs)
+- F = Frame labor (frame straightening, alignment)
+- E = Electrical labor (wiring, sensors, electronics)
+- G = Glass labor (windshield, windows)
+- D = Diagnostic labor (computer diagnostics, troubleshooting)
+- Incl = Included (operation included in another operation, no added charge)
+
+**PAINT & MATERIALS / SPECIAL WORK:**
+- Three Stage = Extra paint procedure (tri-coat paint system)
+- Add for Clear Coat = Extra refinish step for clear coat application
+- BCR = Blend, Clear, Refinish (complete paint process)
+- O/H = Overhaul (complete disassembly and rebuild)
+
+**SUBLET CHARGES:**
+- Subl = Sublet work (work performed by third-party vendor)
+- Common sublet operations:
+  • Wheel alignment (performed at alignment shop)
+  • Glass replacement (performed at glass shop)
+  • ADAS calibration (camera/sensor calibration)
+  • Paintless dent repair (PDR specialist)
+  • Upholstery repair (interior specialist)
+
+**PRICING INDICATORS:**
+- X = Tax-exempt item (not subject to sales tax)
+- T = Taxable miscellaneous charge (subject to sales tax)
+
+**PART INFORMATION:**
+- Part numbers identify specific vehicle parts (e.g., 3CN807421BGRU = Bumper cover)
+- Part numbers typically indicate OEM (Original Equipment Manufacturer) parts
+- Generic descriptions without part numbers may indicate aftermarket parts
+- Look for "OEM", "OE", "Genuine", "Original" to identify OEM parts
+- Look for "Aftermarket", "AM", "Alternative" to identify aftermarket parts
+
+**OVERLAPS (NEGATIVE TIME ADJUSTMENTS):**
+- Major Overlap = Negative time to prevent double-charging when operations overlap
+- Minor Overlap = Small negative time adjustment for shared work
+- Example: If removing bumper is included in another operation, overlap prevents charging twice
+
+**GENERAL LINE ITEM STRUCTURE:**
+Each line item typically contains:
+1. Operation code (S01, S02, etc.) - indicates which supplement
+2. Labor operation (Rpr, Repl, R&I, R&R, etc.) - what work is being done
+3. Part number (if applicable) - specific part being replaced
+4. Description - detailed description of work or part
+5. Labor hours - time for labor (may have letter suffix: M, S, F, E, G, D)
+6. Paint hours - time for paint/refinish work
+7. Quantity - number of parts or operations
+8. Price - unit price
+9. Total - extended total (quantity × price)
+
+**CRITICAL INTERPRETATION RULES:**
+1. If you see S01, S02, etc. → This line belongs to that specific supplement number
+2. If NO supplement code → This line is from the ORIGINAL estimate
+3. If you see "Subl" → This is work done by an outside vendor
+4. If you see a part number → This is an actual car part being replaced
+5. Labor category letters (M, S, F, E, G, D) describe the TYPE of labor work
+6. Negative amounts (overlaps) are NORMAL and prevent double-charging
+7. "Incl" means the operation is included in another line item's labor time
+
+═══════════════════════════════════════════════════════════════════════════════
+
 CRITICAL METADATA EXTRACTION:
 **CLAIM NUMBER:**
 - Look for "Claim #", "Claim Number", or "Claim No." typically in the TOP RIGHT of the FIRST PAGE

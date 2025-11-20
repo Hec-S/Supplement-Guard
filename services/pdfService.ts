@@ -178,9 +178,21 @@ Please note: Any misrepresentation of repairs, labor, parts, or supplements—in
     currentY = disclaimerEndY + 15;
 
     // Original Invoice Section - Check if categories exist
+    // Add visual distinction with colored header box
     checkPageSpace(100);
-    addSafeText('Original Invoice', safeZone, maxContentWidth, 16, 'bold');
-    currentY += 5;
+    
+    // Draw blue background box for Original Invoice header
+    doc.setFillColor(59, 130, 246); // Blue color
+    doc.rect(safeZone - 5, currentY - 5, maxContentWidth + 10, 15, 'F');
+    
+    // Add white text on blue background
+    doc.setTextColor(255, 255, 255); // White text
+    doc.setFontSize(16);
+    doc.setFont(undefined, 'bold');
+    doc.text('ORIGINAL INVOICE', safeZone, currentY + 5);
+    
+    currentY += 20;
+    doc.setTextColor(51, 51, 51); // Reset to dark gray
 
     // Check if items have categories
     const originalHasCategories = claimData.originalInvoice.lineItems.some(item => item.category);
@@ -281,9 +293,22 @@ Please note: Any misrepresentation of repairs, labor, parts, or supplements—in
     currentY = createTotalsSummaryTable(doc, originalTotalsSummary, safeZone, currentY, maxContentWidth, false);
 
     // Supplement Invoice Section - Check if categories exist
-    checkPageSpace(100);
-    addSafeText('Supplement Invoice', safeZone, maxContentWidth, 16, 'bold');
-    currentY += 5;
+    // Add page break for clear separation
+    doc.addPage();
+    currentY = safeZone;
+    
+    // Draw green background box for Supplement Invoice header
+    doc.setFillColor(34, 197, 94); // Green color
+    doc.rect(safeZone - 5, currentY - 5, maxContentWidth + 10, 15, 'F');
+    
+    // Add white text on green background
+    doc.setTextColor(255, 255, 255); // White text
+    doc.setFontSize(16);
+    doc.setFont(undefined, 'bold');
+    doc.text('SUPPLEMENT INVOICE', safeZone, currentY + 5);
+    
+    currentY += 20;
+    doc.setTextColor(51, 51, 51); // Reset to dark gray
 
     // Check if items have categories
     const hasCategories = claimData.supplementInvoice.lineItems.some(item => item.category);
@@ -462,12 +487,18 @@ Please note: Any misrepresentation of repairs, labor, parts, or supplements—in
     currentY += 15;
     checkPageSpace(80);
     
-    // Section title
+    // Draw purple background box for Cumulative Effects header
+    doc.setFillColor(147, 51, 234); // Purple color
+    doc.rect(safeZone - 5, currentY - 5, maxContentWidth + 10, 15, 'F');
+    
+    // Add white text on purple background
+    doc.setTextColor(255, 255, 255); // White text
     doc.setFontSize(14);
     doc.setFont(undefined, 'bold');
-    doc.setTextColor(51, 51, 51);
-    doc.text('CUMULATIVE EFFECTS OF SUPPLEMENT(S)', safeZone, currentY);
-    currentY += 10;
+    doc.text('CUMULATIVE EFFECTS OF SUPPLEMENT(S)', safeZone, currentY + 5);
+    
+    currentY += 20;
+    doc.setTextColor(51, 51, 51); // Reset to dark gray
     
     // Create cumulative effects table
     const cumulativeHeaders = ['', 'Amount', 'Adjuster'];
