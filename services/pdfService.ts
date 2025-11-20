@@ -51,8 +51,12 @@ export const generatePdfReport = (claimData: ClaimData, comparisonAnalysis?: Com
     doc.setTextColor(30, 64, 175); // Blue color
     addSafeText('SupplementGuard Claim Report', safeZone, maxContentWidth, 20, 'bold');
     
-    currentY += 5;
-    doc.setTextColor(102, 102, 102); // Gray color
+    currentY += 8;
+    
+    // Create prominent header info section with claim number and vehicle
+    doc.setFillColor(240, 245, 255); // Light blue background
+    const headerBoxHeight = 20;
+    doc.rect(safeZone - 5, currentY - 5, maxContentWidth + 10, headerBoxHeight, 'F');
     
     // Use actual Claim # if available, otherwise fall back to generated ID
     const claimText = claimData.claimNumber
@@ -65,27 +69,33 @@ export const generatePdfReport = (claimData: ClaimData, comparisonAnalysis?: Com
       const { year, make, model, vin } = claimData.vehicleInfo;
       const vehicleDescription = [year, make, model].filter(Boolean).join(' ');
       if (vehicleDescription) {
-        vehicleText = `Vehicle: ${vehicleDescription}`;
-        if (vin) {
-          vehicleText += ` | VIN: ${vin}`;
-        }
+        vehicleText = vehicleDescription;
       }
     }
     
-    const dateText = `Generated: ${new Date().toLocaleDateString()}`;
+    // Display claim number prominently
+    doc.setTextColor(30, 64, 175); // Blue color
+    doc.setFontSize(14);
+    doc.setFont(undefined, 'bold');
+    doc.text(claimText, safeZone, currentY + 5);
     
-    // Display claim number
-    addSafeText(claimText, safeZone, maxContentWidth / 2, 12, 'normal');
-    
-    // Display vehicle info if available
+    // Display vehicle info prominently if available
     if (vehicleText) {
-      currentY += 1;
-      addSafeText(vehicleText, safeZone, maxContentWidth * 0.7, 11, 'normal');
+      doc.setTextColor(51, 51, 51); // Dark gray
+      doc.setFontSize(14);
+      doc.setFont(undefined, 'bold');
+      doc.text(`Vehicle: ${vehicleText}`, safeZone, currentY + 12);
     }
     
-    // Position date text properly
+    // Position date text on the right
+    const dateText = `Generated: ${new Date().toLocaleDateString()}`;
+    doc.setTextColor(102, 102, 102); // Gray color
+    doc.setFontSize(10);
+    doc.setFont(undefined, 'normal');
     const dateWidth = doc.getTextWidth(dateText);
-    doc.text(dateText, pageWidth - safeZone - dateWidth, currentY - (vehicleText ? 10 : 5));
+    doc.text(dateText, pageWidth - safeZone - dateWidth, currentY + 8);
+    
+    currentY += headerBoxHeight;
 
     // Line separator
     currentY += 10;

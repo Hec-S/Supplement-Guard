@@ -353,22 +353,35 @@ Each line item typically contains:
 
 ═══════════════════════════════════════════════════════════════════════════════
 
-CRITICAL METADATA EXTRACTION:
+CRITICAL METADATA EXTRACTION (🚨 HIGHEST PRIORITY - EXTRACT FIRST 🚨):
+
 **CLAIM NUMBER:**
-- Look for "Claim #", "Claim Number", or "Claim No." typically in the TOP RIGHT of the FIRST PAGE
-- This is usually a numeric or alphanumeric identifier
-- Common formats: 6-10 digits, may include letters (e.g., "123456", "ABC123456", "2024-123456")
-- If multiple claim numbers exist, use the most prominent one
+- **LOCATION:** TOP RIGHT corner of the FIRST PAGE, often in a box or highlighted
+- **LOOK FOR:** "Claim #:", "Claim Number:", "Claim No:", or "Claim #" label
+- **FORMAT:** Usually appears as a hyphenated number (e.g., "65-0000545744-01", "12-3456789-01")
+- **VISUAL CUES:** Often highlighted in yellow or in a distinct box
+- **EXAMPLE FROM IMAGE:** "Claim #: 65-0000545744-01"
+- If multiple claim numbers exist, use the one labeled "Claim #" in the top right
+- This is CRITICAL - do not skip this field
 
 **VEHICLE INFORMATION:**
-- Look for a "Vehicle" section or header, typically near the top of the document
-- Extract:
-  • Year (4 digits, e.g., "2022")
-  • Make (manufacturer, e.g., "Toyota", "Ford", "Honda")
-  • Model (e.g., "Camry", "F-150", "Accord")
-  • VIN (17-character Vehicle Identification Number)
-  • Full description if available (e.g., "2022 Toyota Camry LE")
-- The vehicle section may also be labeled as "Vehicle Info", "Auto Info", or similar
+- **LOCATION:** Look for a section labeled "VEHICLE" (all caps, bold header)
+- **TYPICAL POSITION:** Below the claim information, often after owner/claimant details
+- **VISUAL CUES:** The word "VEHICLE" is usually a bold, standalone header
+- **WHAT TO EXTRACT:** The complete vehicle description line that appears immediately after the "VEHICLE" header
+- **FORMAT:** Usually a single line with: Year Make Model Trim Engine Type Color
+- **EXAMPLE FROM IMAGE:** "2025 VW Atlas SEL Premium R-Line 4MOTION 4D UTV 4-2.0L Turbocharged Gasoline Gasoline Direct Injection Red"
+- **PARSING INSTRUCTIONS:**
+  • Year: First 4 digits (e.g., "2025")
+  • Make: Next word(s) - manufacturer (e.g., "VW" or "Volkswagen")
+  • Model: Following word(s) (e.g., "Atlas")
+  • Full description: Store the entire line for reference
+- **ALSO EXTRACT FROM VEHICLE SECTION:**
+  • VIN: Look for "VIN:" label (17-character alphanumeric, e.g., "1V2FR2CA5SC505340")
+  • License: Look for "License:" label
+  • State: Look for "State:" label
+- The vehicle section may span multiple lines with additional details like VIN, license plate, odometer, colors, etc.
+- **CRITICAL:** Always extract the main vehicle description line - this is essential for claim identification
 
 CRITICAL TOTAL EXTRACTION:
 - In the SUPPLEMENT file, the "Workfile Total" or "NET COST OF REPAIRS" shows the COMPLETE total
