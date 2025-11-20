@@ -11,6 +11,7 @@ import HiddenImageDemo from './components/HiddenImageDemo';
 import ChangeFocusedPdfTest from './components/ChangeFocusedPdfTest';
 import TestEnhancedInvoiceViewer from './components/TestEnhancedInvoiceViewer';
 import { TestImprovedOCR } from './components/TestImprovedOCR';
+import { TestTotalsSummary } from './components/TestTotalsSummary';
 import Spinner from './components/Spinner';
 
 const App: React.FC = () => {
@@ -18,13 +19,13 @@ const App: React.FC = () => {
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
   const [showTestMode, setShowTestMode] = useState<boolean>(false);
-  const [testModeType, setTestModeType] = useState<'fraud' | 'pdf' | 'premium' | 'hidden' | 'changes' | 'invoice' | 'ocr'>('fraud');
+  const [testModeType, setTestModeType] = useState<'fraud' | 'pdf' | 'premium' | 'hidden' | 'changes' | 'invoice' | 'ocr' | 'totals'>('fraud');
 
   // Check for test mode in URL parameters
   React.useEffect(() => {
     const urlParams = new URLSearchParams(window.location.search);
     const testParam = urlParams.get('test');
-    const testMode = testParam === 'fraud' || testParam === 'pdf' || testParam === 'premium' || testParam === 'hidden' || testParam === 'changes' || testParam === 'invoice' || testParam === 'ocr' || window.location.pathname.includes('/test');
+    const testMode = testParam === 'fraud' || testParam === 'pdf' || testParam === 'premium' || testParam === 'hidden' || testParam === 'changes' || testParam === 'invoice' || testParam === 'ocr' || testParam === 'totals' || window.location.pathname.includes('/test');
     setShowTestMode(testMode);
     if (testParam === 'pdf') {
       setTestModeType('pdf');
@@ -38,6 +39,8 @@ const App: React.FC = () => {
       setTestModeType('invoice');
     } else if (testParam === 'ocr') {
       setTestModeType('ocr');
+    } else if (testParam === 'totals') {
+      setTestModeType('totals');
     }
   }, []);
 
@@ -89,7 +92,9 @@ const App: React.FC = () => {
                           ? '📊 Enhanced Invoice Viewer Test Mode'
                           : testModeType === 'ocr'
                             ? '🔍 Improved OCR Line Item Comparison Test Mode'
-                            : 'Advanced Fraud Detection Test Mode'
+                            : testModeType === 'totals'
+                              ? '📊 TOTALS SUMMARY Table Test Mode'
+                              : 'Advanced Fraud Detection Test Mode'
                 }
               </h2>
               <p className="text-blue-700 text-sm">
@@ -105,7 +110,9 @@ const App: React.FC = () => {
                           ? 'Testing enhanced invoice viewer with new column order: Description, Original Price, Price Change, New Price, Status.'
                           : testModeType === 'ocr'
                             ? 'Testing improved OCR that focuses on line item comparison only, tracking what changed between original and supplement packages.'
-                            : 'Testing comprehensive fraud detection algorithms with sample data scenarios.'
+                            : testModeType === 'totals'
+                              ? 'Testing TOTALS SUMMARY table rendering in PDF with mock data showing category breakdown (Parts, Labor, Supplies, etc.).'
+                              : 'Testing comprehensive fraud detection algorithms with sample data scenarios.'
                 }
               </p>
               <div className="mt-3 flex gap-2">
@@ -180,6 +187,16 @@ const App: React.FC = () => {
                   🔍 Improved OCR
                 </button>
                 <button
+                  onClick={() => setTestModeType('totals')}
+                  className={`px-3 py-1 text-sm rounded transition-colors ${
+                    testModeType === 'totals'
+                      ? 'bg-amber-600 text-white'
+                      : 'bg-amber-200 text-amber-800 hover:bg-amber-300'
+                  }`}
+                >
+                  📊 Totals Summary
+                </button>
+                <button
                   onClick={() => setShowTestMode(false)}
                   className="px-3 py-1 bg-red-600 text-white text-sm rounded hover:bg-red-700 transition-colors ml-auto"
                 >
@@ -199,7 +216,9 @@ const App: React.FC = () => {
                       ? <TestEnhancedInvoiceViewer />
                       : testModeType === 'ocr'
                         ? <TestImprovedOCR />
-                        : <SimplePdfTest />
+                        : testModeType === 'totals'
+                          ? <TestTotalsSummary />
+                          : <SimplePdfTest />
             }
           </div>
         ) : isLoading ? (

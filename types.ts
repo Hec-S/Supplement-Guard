@@ -115,12 +115,31 @@ export interface AutomotiveLineItem extends InvoiceLineItem {
   priceVariancePercentFromMarket?: number;
 }
 
+// Totals Summary Interface for category-based totals
+export interface TotalsSummaryCategory {
+  category: string;
+  basis?: string;  // e.g., "15.4 hrs"
+  rate?: string;   // e.g., "$ 120.00 /hr"
+  cost: number;
+}
+
+export interface TotalsSummary {
+  categories: TotalsSummaryCategory[];
+  subtotal: number;
+  salesTax: number;
+  salesTaxRate?: number;  // e.g., 9.0000 for 9%
+  salesTaxBasis?: number; // The amount tax is calculated on
+  totalAmount: number;
+  netCostOfSupplement?: number; // For supplement invoices
+}
+
 export interface Invoice {
   fileName: string;
   lineItems: InvoiceLineItem[];
   subtotal: number;
   tax: number;
   total: number;
+  totalsSummary?: TotalsSummary; // Optional totals summary extracted from invoice
 }
 
 export interface ClaimData {

@@ -314,6 +314,241 @@ class ImprovedPdfGenerator {
   }
 
   /**
+   * Generates a totals summary from line items if not provided
+   */
+  private generateTotalsSummaryFromLineItems(invoice: any): any {
+    // Group line items by category
+    const categoryTotals = new Map<string, number>();
+    let laborHours = 0;
+    let paintHours = 0;
+    
+    invoice.lineItems.forEach((item: any) => {
+      const category = item.category || 'Miscellaneous';
+      
+      // Accumulate totals by category
+      if (category.toLowerCase().includes('labor') || category.toLowerCase().includes('body')) {
+        categoryTotals.set('Body Labor', (categoryTotals.get('Body Labor') || 0) + item.total);
+        laborHours += item.laborHours || 0;
+      } else if (category.toLowerCase().includes('paint')) {
+        if (category.toLowerCase().includes('supplies') || category.toLowerCase().includes('materials')) {
+          categoryTotals.set('Paint Supplies', (categoryTotals.get('Paint Supplies') || 0) + item.total);
+        } else {
+          categoryTotals.set('Paint Labor', (categoryTotals.get('Paint Labor') || 0) + item.total);
+          paintHours += item.paintHours || 0;
+        }
+      } else if (category.toLowerCase().includes('parts') || category.toLowerCase().includes('bumper') || category.toLowerCase().includes('panel')) {
+        categoryTotals.set('Parts', (categoryTotals.get('Parts') || 0) + item.total);
+      } else if (category.toLowerCase().includes('mechanical')) {
+        categoryTotals.set('Mechanical Labor', (categoryTotals.get('Mechanical Labor') || 0) + item.total);
+      } else {
+        categoryTotals.set('Miscellaneous', (categoryTotals.get('Miscellaneous') || 0) + item.total);
+      }
+    });
+    
+    // Create categories array
+    const categories = [];
+    
+    // Add Parts
+    if (categoryTotals.has('Parts')) {
+      categories.push({
+        category: 'Parts',
+        basis: '',
+        rate: '',
+        cost: categoryTotals.get('Parts')
+      });
+    }
+    
+    // Add Body Labor
+    if (categoryTotals.has('Body Labor')) {
+      categories.push({
+        category: 'Body Labor',
+        basis: laborHours > 0 ? `${laborHours.toFixed(1)} hrs` : '',
+        rate: laborHours > 0 ? '$ 120.00 /hr' : '',
+        cost: categoryTotals.get('Body Labor')
+      });
+    }
+    
+    // Add Paint Labor
+    if (categoryTotals.has('Paint Labor')) {
+      categories.push({
+        category: 'Paint Labor',
+        basis: paintHours > 0 ? `${paintHours.toFixed(1)} hrs` : '',
+        rate: paintHours > 0 ? '$ 120.00 /hr' : '',
+        cost: categoryTotals.get('Paint Labor')
+      });
+    }
+    
+    // Add Mechanical Labor
+    if (categoryTotals.has('Mechanical Labor')) {
+      categories.push({
+        category: 'Mechanical Labor',
+        basis: '',
+        rate: '',
+        cost: categoryTotals.get('Mechanical Labor')
+      });
+    }
+    
+    // Add Paint Supplies
+    if (categoryTotals.has('Paint Supplies')) {
+      categories.push({
+        category: 'Paint Supplies',
+        basis: paintHours > 0 ? `${paintHours.toFixed(1)} hrs` : '',
+        rate: paintHours > 0 ? '$ 42.00 /hr' : '',
+        cost: categoryTotals.get('Paint Supplies')
+      });
+    }
+    
+    // Add Miscellaneous
+    if (categoryTotals.has('Miscellaneous')) {
+      categories.push({
+        category: 'Miscellaneous',
+        basis: '',
+        rate: '',
+        cost: categoryTotals.get('Miscellaneous')
+      });
+    }
+    
+    // Calculate tax rate
+    const taxRate = invoice.subtotal > 0 ? (invoice.tax / invoice.subtotal) * 100 : 0;
+    
+    return {
+      categories: categories,
+      subtotal: invoice.subtotal,
+      salesTax: invoice.tax,
+      salesTaxRate: taxRate,
+      totalAmount: invoice.total
+    };
+  }
+
+  /**
+   * Creates a totals summary table showing category breakdown
+   */
+  private createTotalsSummaryTable(totalsSummary: any, isSupplementInvoice: boolean = false): void {
+    if (!totalsSummary || !totalsSummary.categories || totalsSummary.categories.length === 0) {
+      return; // No totals summary to display
+    }
+
+    const startX = this.config.safeZone;
+    const tableWidth = this.config.maxContentWidth;
+    
+    // Add section header
+    this.checkPageSpace(20);
+    this.currentY += 5;
+    
+    this.doc.setFontSize(12);
+    this.doc.setFont(undefined, 'bold');
+    this.doc.setTextColor(51, 51, 51);
+    this.doc.text('TOTALS SUMMARY', startX, this.currentY);
+    this.currentY += 8;
+    
+    // Table headers
+    const headers = ['Category', 'Basis', 'Rate', 'Cost $'];
+    const colWidths = [60, 30, 35, 35];
+    
+    // Draw header background
+    this.doc.setFillColor(240, 240, 240);
+    this.doc.rect(startX, this.currentY, tableWidth, 8, 'F');
+    
+    // Draw header text
+    this.doc.setFontSize(10);
+    this.doc.setFont(undefined, 'bold');
+    this.doc.setTextColor(51, 51, 51);
+    
+    let currentX = startX;
+    headers.forEach((header, index) => {
+      const cellWidth = colWidths[index];
+      this.doc.text(header, currentX + 2, this.currentY + 6);
+      currentX += cellWidth;
+    });
+    
+    this.currentY += 10;
+    
+    // Draw category rows
+    totalsSummary.categories.forEach((category: any, index: number) => {
+      const rowHeight = 7;
+      this.checkPageSpace(rowHeight);
+      
+      // Alternating row background
+      if (index % 2 === 1) {
+        this.doc.setFillColor(248, 250, 252);
+        this.doc.rect(startX, this.currentY - 2, tableWidth, rowHeight, 'F');
+      }
+      
+      this.doc.setFontSize(9);
+      this.doc.setFont(undefined, 'normal');
+      this.doc.setTextColor(51, 51, 51);
+      
+      currentX = startX;
+      
+      // Category name
+      const categoryText = this.doc.splitTextToSize(category.category || '', colWidths[0] - 4);
+      this.doc.text(categoryText, currentX + 2, this.currentY + 4);
+      currentX += colWidths[0];
+      
+      // Basis
+      this.doc.text(category.basis || '', currentX + 2, this.currentY + 4);
+      currentX += colWidths[1];
+      
+      // Rate
+      this.doc.text(category.rate || '', currentX + 2, this.currentY + 4);
+      currentX += colWidths[2];
+      
+      // Cost
+      this.doc.setFont(undefined, 'bold');
+      this.doc.text(formatCurrency(category.cost || 0), currentX + 2, this.currentY + 4);
+      
+      this.currentY += rowHeight;
+    });
+    
+    // Add separator line
+    this.doc.setDrawColor(200, 200, 200);
+    this.doc.line(startX, this.currentY, startX + tableWidth, this.currentY);
+    this.currentY += 5;
+    
+    // Subtotal row
+    this.doc.setFontSize(10);
+    this.doc.setFont(undefined, 'bold');
+    this.doc.setTextColor(51, 51, 51);
+    this.doc.text('Subtotal', startX + 2, this.currentY);
+    this.doc.text(formatCurrency(totalsSummary.subtotal), startX + tableWidth - 35, this.currentY);
+    this.currentY += 7;
+    
+    // Sales Tax row
+    const taxText = totalsSummary.salesTaxRate
+      ? `Sales Tax (${totalsSummary.salesTaxRate.toFixed(4)}%)`
+      : 'Sales Tax';
+    this.doc.setFont(undefined, 'normal');
+    this.doc.text(taxText, startX + 2, this.currentY);
+    this.doc.setFont(undefined, 'bold');
+    this.doc.text(formatCurrency(totalsSummary.salesTax), startX + tableWidth - 35, this.currentY);
+    this.currentY += 7;
+    
+    // Total row with background
+    this.doc.setFillColor(230, 230, 230);
+    this.doc.rect(startX, this.currentY - 5, tableWidth, 10, 'F');
+    
+    this.doc.setFontSize(12);
+    this.doc.setFont(undefined, 'bold');
+    this.doc.setTextColor(30, 64, 175);
+    this.doc.text('Total Amount', startX + 2, this.currentY);
+    this.doc.text(formatCurrency(totalsSummary.totalAmount), startX + tableWidth - 35, this.currentY);
+    this.currentY += 10;
+    
+    // NET COST OF SUPPLEMENT for supplement invoices
+    if (isSupplementInvoice) {
+      this.doc.setFillColor(30, 64, 175);
+      this.doc.rect(startX, this.currentY - 5, tableWidth, 10, 'F');
+      
+      this.doc.setFontSize(12);
+      this.doc.setFont(undefined, 'bold');
+      this.doc.setTextColor(255, 255, 255);
+      this.doc.text('NET COST OF SUPPLEMENT', startX + 2, this.currentY);
+      this.doc.text(formatCurrency(totalsSummary.totalAmount || totalsSummary.netCostOfSupplement || 0), startX + tableWidth - 35, this.currentY);
+      this.currentY += 12;
+    }
+  }
+
+  /**
    * Adds page numbers and footers to all pages
    */
   private addPageNumbersAndFooters(): void {
@@ -475,27 +710,36 @@ Please note: Any misrepresentation of repairs, labor, parts, or supplements—in
         formatCurrency(item.total)
       ]);
       
-      // Add totals row
-      originalData.push([
-        'SUBTOTAL',
-        '',
-        '',
-        formatCurrency(claimData.originalInvoice.subtotal)
-      ]);
-      originalData.push([
-        'TAX',
-        '',
-        '',
-        formatCurrency(claimData.originalInvoice.tax)
-      ]);
-      originalData.push([
-        'TOTAL',
-        '',
-        '',
-        formatCurrency(claimData.originalInvoice.total)
-      ]);
-      
+      // Create table WITHOUT totals rows
       this.createTable(originalHeaders, originalData, [80, 20, 30, 30]);
+      
+      // Add totals in a gray box
+      this.currentY += 5;
+      this.checkPageSpace(30);
+      
+      const boxWidth = this.config.maxContentWidth;
+      const boxHeight = 25;
+      
+      // Draw gray background box
+      this.doc.setFillColor(230, 230, 230);
+      this.doc.rect(this.config.safeZone, this.currentY, boxWidth, boxHeight, 'F');
+      
+      // Add totals text
+      this.doc.setFontSize(10);
+      this.doc.setFont(undefined, 'bold');
+      this.doc.setTextColor(51, 51, 51);
+      
+      this.doc.text(`SUBTOTAL: ${formatCurrency(claimData.originalInvoice.subtotal)}`, this.config.safeZone + 5, this.currentY + 8);
+      this.doc.text(`TAX: ${formatCurrency(claimData.originalInvoice.tax)}`, this.config.safeZone + 5, this.currentY + 15);
+      this.doc.text(`TOTAL: ${formatCurrency(claimData.originalInvoice.total)}`, this.config.safeZone + 5, this.currentY + 22);
+      
+      this.currentY += boxHeight + 5;
+      
+      // Always add Original Invoice Totals Summary
+      this.currentY += 10;
+      const originalTotalsSummary = claimData.originalInvoice.totalsSummary ||
+                                    this.generateTotalsSummaryFromLineItems(claimData.originalInvoice);
+      this.createTotalsSummaryTable(originalTotalsSummary, false);
       
       // Supplement Invoice Section
       this.addSectionHeader('Supplement Invoice');
@@ -521,40 +765,45 @@ Please note: Any misrepresentation of repairs, labor, parts, or supplements—in
         item.isNew ? 'NEW' : item.isChanged ? 'CHANGED' : 'SAME'
       ]);
       
-      // Add totals
-      supplementData.push([
-        'SUBTOTAL',
-        '',
-        '',
-        formatCurrency(claimData.supplementInvoice.subtotal),
-        ''
-      ]);
-      supplementData.push([
-        'TAX',
-        '',
-        '',
-        formatCurrency(claimData.supplementInvoice.tax),
-        ''
-      ]);
-      supplementData.push([
-        'TOTAL',
-        '',
-        '',
-        formatCurrency(claimData.supplementInvoice.total),
-        ''
-      ]);
-      
-      // Cost difference
-      const difference = claimData.supplementInvoice.total - claimData.originalInvoice.total;
-      supplementData.push([
-        'COST DIFFERENCE',
-        '',
-        '',
-        formatCurrency(difference),
-        difference > 0 ? 'INCREASE' : 'DECREASE'
-      ]);
-      
+      // Create table WITHOUT totals rows
       this.createTable(supplementHeaders, supplementData, [70, 15, 25, 25, 25]);
+      
+      // Add totals in a gray box with cost difference
+      this.currentY += 5;
+      this.checkPageSpace(35);
+      
+      const suppBoxWidth = this.config.maxContentWidth;
+      const difference = claimData.supplementInvoice.total - claimData.originalInvoice.total;
+      const suppBoxHeight = 30;
+      
+      // Draw gray background box
+      this.doc.setFillColor(230, 230, 230);
+      this.doc.rect(this.config.safeZone, this.currentY, suppBoxWidth, suppBoxHeight, 'F');
+      
+      // Add totals text (left side)
+      this.doc.setFontSize(10);
+      this.doc.setFont(undefined, 'bold');
+      this.doc.setTextColor(51, 51, 51);
+      
+      this.doc.text(`SUBTOTAL: ${formatCurrency(claimData.supplementInvoice.subtotal)}`, this.config.safeZone + 5, this.currentY + 8);
+      this.doc.text(`TAX: ${formatCurrency(claimData.supplementInvoice.tax)}`, this.config.safeZone + 5, this.currentY + 15);
+      this.doc.text(`TOTAL: ${formatCurrency(claimData.supplementInvoice.total)}`, this.config.safeZone + 5, this.currentY + 22);
+      
+      // Add cost difference (right side) in red
+      this.doc.setTextColor(difference > 0 ? 255 : 0, 0, 0);
+      this.doc.text(`COST DIFFERENCE: ${difference > 0 ? '+' : ''}${formatCurrency(difference)}`, this.config.safeZone + suppBoxWidth - 80, this.currentY + 15, { align: 'right' });
+      
+      this.currentY += suppBoxHeight + 5;
+      
+      // Always add Supplement Invoice Totals Summary
+      this.currentY += 10;
+      const supplementTotalsSummary = claimData.supplementInvoice.totalsSummary ||
+                                      this.generateTotalsSummaryFromLineItems(claimData.supplementInvoice);
+      // Add NET COST OF SUPPLEMENT to the summary if not present
+      if (!supplementTotalsSummary.netCostOfSupplement) {
+        supplementTotalsSummary.netCostOfSupplement = claimData.supplementInvoice.total;
+      }
+      this.createTotalsSummaryTable(supplementTotalsSummary, true);
       
       // Needs Warranty Section
       this.currentY += 10;

@@ -55,6 +55,35 @@ const invoiceLineItemSchema = {
   required: ['id', 'category', 'description', 'quantity', 'price', 'total']
 };
 
+const totalsSummaryCategorySchema = {
+  type: Type.OBJECT,
+  properties: {
+    category: { type: Type.STRING, description: "Category name (e.g., 'Parts', 'Body Labor', 'Paint Labor')" },
+    basis: { type: Type.STRING, nullable: true, description: "Basis for calculation (e.g., '15.4 hrs')" },
+    rate: { type: Type.STRING, nullable: true, description: "Rate (e.g., '$ 120.00 /hr')" },
+    cost: { type: Type.NUMBER, description: "Cost amount for this category" }
+  },
+  required: ['category', 'cost']
+};
+
+const totalsSummarySchema = {
+  type: Type.OBJECT,
+  properties: {
+    categories: {
+      type: Type.ARRAY,
+      items: totalsSummaryCategorySchema,
+      description: "Array of category totals (Parts, Body Labor, Paint Labor, etc.)"
+    },
+    subtotal: { type: Type.NUMBER, description: "Subtotal amount" },
+    salesTax: { type: Type.NUMBER, description: "Sales tax amount" },
+    salesTaxRate: { type: Type.NUMBER, nullable: true, description: "Tax rate percentage (e.g., 9.0000 for 9%)" },
+    salesTaxBasis: { type: Type.NUMBER, nullable: true, description: "Amount tax is calculated on" },
+    totalAmount: { type: Type.NUMBER, description: "Total amount" },
+    netCostOfSupplement: { type: Type.NUMBER, nullable: true, description: "Net cost of supplement (for supplement invoices)" }
+  },
+  required: ['categories', 'subtotal', 'salesTax', 'totalAmount']
+};
+
 const invoiceSchema = {
   type: Type.OBJECT,
   properties: {
@@ -63,6 +92,11 @@ const invoiceSchema = {
     subtotal: { type: Type.NUMBER },
     tax: { type: Type.NUMBER },
     total: { type: Type.NUMBER },
+    totalsSummary: {
+      ...totalsSummarySchema,
+      nullable: true,
+      description: "Totals summary table if present in the invoice (look for 'TOTALS SUMMARY' section)"
+    }
   },
   required: ['fileName', 'lineItems', 'subtotal', 'tax', 'total']
 };
@@ -229,10 +263,11 @@ export const analyzeClaimPackage = async (
 Your task is to:
 1. Extract CLAIM NUMBER and VEHICLE INFORMATION from the documents
 2. Extract all line items from both documents WITH THEIR CATEGORIES
-3. Compare them to identify what changed
-4. Track additions, removals, and modifications
-5. Extract the COMPLETE workfile total from supplement (estimate + all supplements)
-6. Return structured data showing these changes
+3. **EXTRACT THE "TOTALS SUMMARY" TABLE** (CRITICAL - see section 7 below)
+4. Compare line items to identify what changed
+5. Track additions, removals, and modifications
+6. Extract the COMPLETE workfile total from supplement (estimate + all supplements)
+7. Return structured data showing these changes
 
 CRITICAL METADATA EXTRACTION:
 **CLAIM NUMBER:**
@@ -369,7 +404,70 @@ Follow these instructions precisely:
    
    **IMPORTANT:** The "Workfile Total" or "NET COST OF REPAIRS" in the supplement represents the COMPLETE total including the original estimate PLUS all supplements. This is the TRUE final amount.
 
-7. **Generate Change Summary:**
+7. **TOTALS SUMMARY Extraction (🚨 CRITICAL - HIGHEST PRIORITY 🚨):**
+   
+   **🔍 LOOK FOR A "TOTALS SUMMARY" TABLE IN BOTH ORIGINAL AND SUPPLEMENT INVOICES.**
+   
+   **WHERE TO FIND IT:**
+   - Usually appears at the END of the invoice, AFTER all line items
+   - May be labeled as "TOTALS SUMMARY", "SUMMARY", or "COST BREAKDOWN"
+   - Typically has a table format with columns: Category | Basis | Rate | Cost $
+   
+   **WHAT IT CONTAINS:**
+   This table shows the complete cost breakdown by category:
+   - **Parts** (just dollar amount)
+   - **Body Labor** (hours @ hourly rate = cost)
+   - **Paint Labor** (hours @ hourly rate = cost)
+   - **Mechanical Labor** (hours @ hourly rate = cost)
+   - **Additional Supplement Labor** (dollar amount, may be negative)
+   - **Paint Supplies** (hours @ hourly rate = cost)
+   - **Additional Supplement Materials/Supplies** (dollar amount, may be negative)
+   - **Miscellaneous** (dollar amount)
+   - **Subtotal** (sum of all categories)
+   - **Sales Tax** (with tax rate % and basis amount)
+   - **Total Supplement Amount** or **Total Amount**
+   - **NET COST OF SUPPLEMENT** (for supplement invoices only)
+   
+   **EXTRACTION INSTRUCTIONS:**
+   For EACH category row, extract an object with these fields:
+   - category: The category name (e.g., "Parts", "Body Labor", "Paint Labor")
+   - basis: The basis value if present (e.g., "15.4 hrs") or empty string
+   - rate: The rate if present (e.g., "$ 120.00 /hr") or empty string
+   - cost: The dollar amount (e.g., 1848.00)
+   
+   Then extract the totals:
+   - subtotal: The subtotal amount
+   - salesTax: The tax amount
+   - salesTaxRate: The tax percentage (e.g., 9.0000 for 9%)
+   - salesTaxBasis: The amount tax is calculated on
+   - totalAmount: The final total
+   - netCostOfSupplement: (supplement only) The net cost
+   
+   **🚨 CRITICAL REQUIREMENTS:**
+   1. **ALWAYS scan for this table** - it's usually at the bottom of the invoice
+   2. **Extract ALL categories** present in the table
+   3. **Include negative amounts** (like Additional Supplement Labor: -944.70)
+   4. **Preserve exact formatting** of basis and rate strings
+   5. **If the table exists, you MUST extract it** - this is non-negotiable
+   6. **If no TOTALS SUMMARY table is found**, set totalsSummary to null
+   
+   **EXAMPLE - If you see this table in the invoice:**
+   Parts                                                    298.44
+   Body Labor              15.4 hrs    @ $ 120.00 /hr    1,848.00
+   Paint Labor             10.9 hrs    @ $ 120.00 /hr    1,308.00
+   Mechanical Labor         1.0 hrs    @ $ 200.00 /hr      200.00
+   Additional Supplement Labor                            -944.70
+   Paint Supplies          10.9 hrs    @ $ 42.00 /hr       457.80
+   Additional Supplement Materials/Supplies               -235.20
+   Miscellaneous                                            89.95
+   Subtotal                                              3,022.29
+   Sales Tax               $ 521.04    @ 9.0000 %           46.89
+   Total Supplement Amount                               3,069.18
+   NET COST OF SUPPLEMENT                                3,069.18
+   
+   **You must extract it as this JSON structure in the totalsSummary field.**
+
+8. **Generate Change Summary:**
    
    Create a changesSummary object with:
    - totalNewItems: Count of new items added
@@ -379,7 +477,7 @@ Follow these instructions precisely:
    - totalAmountChange: Dollar difference in totals
    - percentageChange: Percentage change in total
 
-8. **Invoice Summary:**
+9. **Invoice Summary:**
    
    Write a clear, detailed summary focusing on:
    - What specific items were added (organized by category)
@@ -403,6 +501,7 @@ IMPORTANT NOTES:
 - Set fraudScore to 0 and fraudReasons to empty array (not used)
 - **CRITICAL:** The "Workfile Total" or "NET COST OF REPAIRS" in supplement files represents the COMPLETE claim total (original estimate + all supplements)
 - Always extract and report this complete workfile total for accurate financial reporting
+- **NEW CRITICAL REQUIREMENT:** Extract the TOTALS SUMMARY table if present in the invoice - this provides the authoritative cost breakdown by category
 
 Return ONLY a single, valid JSON object that adheres to the provided schema. Do not include any other text or markdown formatting.`;
 
@@ -435,6 +534,12 @@ Return ONLY a single, valid JSON object that adheres to the provided schema. Do 
     }
 
     validateClaimData(parsedData);
+    
+    // Debug logging for TOTALS SUMMARY extraction
+    console.log('=== OCR EXTRACTION DEBUG ===');
+    console.log('Original Invoice totalsSummary:', parsedData.originalInvoice.totalsSummary);
+    console.log('Supplement Invoice totalsSummary:', parsedData.supplementInvoice.totalsSummary);
+    console.log('===========================');
     
     return parsedData as ClaimData;
   } catch (error) {

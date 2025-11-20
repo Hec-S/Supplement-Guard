@@ -274,6 +274,12 @@ Please note: Any misrepresentation of repairs, labor, parts, or supplements—in
       currentY += (originalData.length + 1) * 8 + 10;
     }
 
+    // Add TOTALS SUMMARY for Original Invoice
+    currentY += 10;
+    const originalTotalsSummary = claimData.originalInvoice.totalsSummary ||
+                                  generateTotalsSummaryFromLineItems(claimData.originalInvoice);
+    currentY = createTotalsSummaryTable(doc, originalTotalsSummary, safeZone, currentY, maxContentWidth, false);
+
     // Supplement Invoice Section - Check if categories exist
     checkPageSpace(100);
     addSafeText('Supplement Invoice', safeZone, maxContentWidth, 16, 'bold');
@@ -441,6 +447,120 @@ Please note: Any misrepresentation of repairs, labor, parts, or supplements—in
       createImprovedTableWithColors(doc, supplementHeaders, supplementData, safeZone, currentY, maxContentWidth, sortedSupplementItems, claimData.originalInvoice.lineItems);
       currentY += (supplementData.length + 1) * 8 + 10;
     }
+
+    // Add TOTALS SUMMARY for Supplement Invoice
+    currentY += 10;
+    const supplementTotalsSummary = claimData.supplementInvoice.totalsSummary ||
+                                    generateTotalsSummaryFromLineItems(claimData.supplementInvoice);
+    // Add NET COST OF SUPPLEMENT to the summary if not present
+    if (!supplementTotalsSummary.netCostOfSupplement) {
+      supplementTotalsSummary.netCostOfSupplement = claimData.supplementInvoice.total;
+    }
+    currentY = createTotalsSummaryTable(doc, supplementTotalsSummary, safeZone, currentY, maxContentWidth, true);
+
+    // CUMULATIVE EFFECTS OF SUPPLEMENT(S) Section
+    currentY += 15;
+    checkPageSpace(80);
+    
+    // Section title
+    doc.setFontSize(14);
+    doc.setFont(undefined, 'bold');
+    doc.setTextColor(51, 51, 51);
+    doc.text('CUMULATIVE EFFECTS OF SUPPLEMENT(S)', safeZone, currentY);
+    currentY += 10;
+    
+    // Create cumulative effects table
+    const cumulativeHeaders = ['', 'Amount', 'Adjuster'];
+    const cumulativeData = [
+      ['Estimate', formatCurrency(claimData.originalInvoice.total), ''],
+      ['Supplement S01', formatCurrency(claimData.supplementInvoice.total - claimData.originalInvoice.total), '']
+    ];
+    
+    // Calculate column widths
+    const cumColWidths = [80, 40, 40];
+    let cumTableY = currentY;
+    
+    // Draw header background
+    doc.setFillColor(240, 240, 240);
+    doc.rect(safeZone, cumTableY, maxContentWidth, 8, 'F');
+    
+    // Draw header text
+    doc.setFontSize(10);
+    doc.setFont(undefined, 'bold');
+    doc.setTextColor(51, 51, 51);
+    
+    let cumCurrentX = safeZone;
+    cumulativeHeaders.forEach((header, index) => {
+      const cellWidth = cumColWidths[index];
+      doc.text(header, cumCurrentX + 2, cumTableY + 6);
+      cumCurrentX += cellWidth;
+    });
+    
+    cumTableY += 10;
+    
+    // Draw data rows
+    doc.setFontSize(9);
+    doc.setFont(undefined, 'normal');
+    
+    cumulativeData.forEach((row, rowIndex) => {
+      const rowHeight = 7;
+      
+      // Alternating row background
+      if (rowIndex % 2 === 1) {
+        doc.setFillColor(248, 250, 252);
+        doc.rect(safeZone, cumTableY - 2, maxContentWidth, rowHeight, 'F');
+      }
+      
+      cumCurrentX = safeZone;
+      
+      // Row label
+      doc.setFont(undefined, 'normal');
+      doc.setTextColor(51, 51, 51);
+      doc.text(row[0], cumCurrentX + 2, cumTableY + 4);
+      cumCurrentX += cumColWidths[0];
+      
+      // Amount
+      doc.setFont(undefined, 'bold');
+      doc.text(row[1], cumCurrentX + 2, cumTableY + 4);
+      cumCurrentX += cumColWidths[1];
+      
+      // Adjuster (empty for now)
+      doc.setFont(undefined, 'normal');
+      doc.text(row[2], cumCurrentX + 2, cumTableY + 4);
+      
+      cumTableY += rowHeight;
+    });
+    
+    // Add separator line
+    doc.setDrawColor(200, 200, 200);
+    doc.line(safeZone, cumTableY, safeZone + maxContentWidth, cumTableY);
+    cumTableY += 5;
+    
+    // Workfile Total row with gray background
+    doc.setFillColor(230, 230, 230);
+    doc.rect(safeZone, cumTableY - 2, maxContentWidth, 10, 'F');
+    
+    doc.setFontSize(11);
+    doc.setFont(undefined, 'bold');
+    doc.setTextColor(51, 51, 51);
+    doc.text('Workfile Total:', safeZone + 2, cumTableY + 5);
+    doc.text('$', safeZone + cumColWidths[0] + 2, cumTableY + 5);
+    doc.text(formatCurrency(claimData.supplementInvoice.total).replace('$', ''), safeZone + cumColWidths[0] + 10, cumTableY + 5);
+    cumTableY += 12;
+    
+    // NET COST OF REPAIRS row with gray background
+    doc.setFillColor(230, 230, 230);
+    doc.rect(safeZone, cumTableY - 2, maxContentWidth, 10, 'F');
+    
+    doc.setFontSize(11);
+    doc.setFont(undefined, 'bold');
+    doc.setTextColor(51, 51, 51);
+    doc.text('NET COST OF REPAIRS:', safeZone + 2, cumTableY + 5);
+    doc.text('$', safeZone + cumColWidths[0] + 2, cumTableY + 5);
+    doc.text(formatCurrency(claimData.supplementInvoice.total).replace('$', ''), safeZone + cumColWidths[0] + 10, cumTableY + 5);
+    cumTableY += 12;
+    
+    currentY = cumTableY + 10;
 
     // Needs Warranty Section
     currentY += 10;
@@ -841,6 +961,271 @@ Please note: Any misrepresentation of repairs, labor, parts, or supplements—in
       });
       
       currentY = tableY;
+    }
+
+    // Helper function to generate totals summary from line items if not provided
+    function generateTotalsSummaryFromLineItems(invoice: any): any {
+      // Group line items by category
+      const categoryTotals = new Map<string, number>();
+      let laborHours = 0;
+      let paintHours = 0;
+      
+      invoice.lineItems.forEach((item: any) => {
+        const category = item.category || 'Miscellaneous';
+        
+        // Accumulate totals by category
+        if (category.toLowerCase().includes('labor') || category.toLowerCase().includes('body')) {
+          categoryTotals.set('Body Labor', (categoryTotals.get('Body Labor') || 0) + item.total);
+          laborHours += item.laborHours || 0;
+        } else if (category.toLowerCase().includes('paint')) {
+          if (category.toLowerCase().includes('supplies') || category.toLowerCase().includes('materials')) {
+            categoryTotals.set('Paint Supplies', (categoryTotals.get('Paint Supplies') || 0) + item.total);
+          } else {
+            categoryTotals.set('Paint Labor', (categoryTotals.get('Paint Labor') || 0) + item.total);
+            paintHours += item.paintHours || 0;
+          }
+        } else if (category.toLowerCase().includes('parts') || category.toLowerCase().includes('bumper') || category.toLowerCase().includes('panel')) {
+          categoryTotals.set('Parts', (categoryTotals.get('Parts') || 0) + item.total);
+        } else if (category.toLowerCase().includes('mechanical')) {
+          categoryTotals.set('Mechanical Labor', (categoryTotals.get('Mechanical Labor') || 0) + item.total);
+        } else {
+          categoryTotals.set('Miscellaneous', (categoryTotals.get('Miscellaneous') || 0) + item.total);
+        }
+      });
+      
+      // Create categories array
+      const categories = [];
+      
+      // Add Parts
+      if (categoryTotals.has('Parts')) {
+        categories.push({
+          category: 'Parts',
+          basis: '',
+          rate: '',
+          cost: categoryTotals.get('Parts')
+        });
+      }
+      
+      // Add Body Labor
+      if (categoryTotals.has('Body Labor')) {
+        categories.push({
+          category: 'Body Labor',
+          basis: laborHours > 0 ? `${laborHours.toFixed(1)} hrs` : '',
+          rate: laborHours > 0 ? '$ 120.00 /hr' : '',
+          cost: categoryTotals.get('Body Labor')
+        });
+      }
+      
+      // Add Paint Labor
+      if (categoryTotals.has('Paint Labor')) {
+        categories.push({
+          category: 'Paint Labor',
+          basis: paintHours > 0 ? `${paintHours.toFixed(1)} hrs` : '',
+          rate: paintHours > 0 ? '$ 120.00 /hr' : '',
+          cost: categoryTotals.get('Paint Labor')
+        });
+      }
+      
+      // Add Mechanical Labor
+      if (categoryTotals.has('Mechanical Labor')) {
+        categories.push({
+          category: 'Mechanical Labor',
+          basis: '',
+          rate: '',
+          cost: categoryTotals.get('Mechanical Labor')
+        });
+      }
+      
+      // Add Paint Supplies
+      if (categoryTotals.has('Paint Supplies')) {
+        categories.push({
+          category: 'Paint Supplies',
+          basis: paintHours > 0 ? `${paintHours.toFixed(1)} hrs` : '',
+          rate: paintHours > 0 ? '$ 42.00 /hr' : '',
+          cost: categoryTotals.get('Paint Supplies')
+        });
+      }
+      
+      // Add Miscellaneous
+      if (categoryTotals.has('Miscellaneous')) {
+        categories.push({
+          category: 'Miscellaneous',
+          basis: '',
+          rate: '',
+          cost: categoryTotals.get('Miscellaneous')
+        });
+      }
+      
+      // Calculate tax rate
+      const taxRate = invoice.subtotal > 0 ? (invoice.tax / invoice.subtotal) * 100 : 0;
+      
+      return {
+        categories: categories,
+        subtotal: invoice.subtotal,
+        salesTax: invoice.tax,
+        salesTaxRate: taxRate,
+        totalAmount: invoice.total
+      };
+    }
+
+    // Helper function to create totals summary table
+    function createTotalsSummaryTable(
+      doc: jsPDF,
+      totalsSummary: any,
+      x: number,
+      y: number,
+      width: number,
+      isSupplementInvoice: boolean = false
+    ): number {
+      if (!totalsSummary || !totalsSummary.categories || totalsSummary.categories.length === 0) {
+        return y; // No totals summary to display
+      }
+
+      let tableY = y;
+      
+      // Check if table fits on current page
+      const estimatedTableHeight = (totalsSummary.categories.length + 5) * 10;
+      if (tableY + estimatedTableHeight > pageHeight - safeZone) {
+        doc.addPage();
+        tableY = safeZone;
+        currentY = safeZone;
+      }
+      
+      // Add section header
+      tableY += 5;
+      doc.setFontSize(12);
+      doc.setFont(undefined, 'bold');
+      doc.setTextColor(51, 51, 51);
+      doc.text('TOTALS SUMMARY', x, tableY);
+      tableY += 8;
+      
+      // Table headers
+      const headers = ['Category', 'Basis', 'Rate', 'Cost $'];
+      const colWidths = [60, 30, 35, 35];
+      
+      // Draw header background
+      doc.setFillColor(240, 240, 240);
+      doc.rect(x, tableY, width, 8, 'F');
+      
+      // Draw header text
+      doc.setFontSize(10);
+      doc.setFont(undefined, 'bold');
+      doc.setTextColor(51, 51, 51);
+      
+      let currentX = x;
+      headers.forEach((header, index) => {
+        const cellWidth = colWidths[index];
+        doc.text(header, currentX + 2, tableY + 6);
+        currentX += cellWidth;
+      });
+      
+      tableY += 10;
+      
+      // Draw category rows
+      totalsSummary.categories.forEach((category: any, index: number) => {
+        const rowHeight = 7;
+        
+        // Check if row fits on current page
+        if (tableY + rowHeight > pageHeight - safeZone) {
+          doc.addPage();
+          tableY = safeZone;
+          
+          // Redraw headers on new page
+          doc.setFillColor(240, 240, 240);
+          doc.rect(x, tableY, width, 8, 'F');
+          doc.setFontSize(10);
+          doc.setFont(undefined, 'bold');
+          doc.setTextColor(51, 51, 51);
+          
+          currentX = x;
+          headers.forEach((header, i) => {
+            const cellWidth = colWidths[i];
+            doc.text(header, currentX + 2, tableY + 6);
+            currentX += cellWidth;
+          });
+          tableY += 10;
+        }
+        
+        // Alternating row background
+        if (index % 2 === 1) {
+          doc.setFillColor(248, 250, 252);
+          doc.rect(x, tableY - 2, width, rowHeight, 'F');
+        }
+        
+        doc.setFontSize(9);
+        doc.setFont(undefined, 'normal');
+        doc.setTextColor(51, 51, 51);
+        
+        currentX = x;
+        
+        // Category name
+        const categoryText = doc.splitTextToSize(category.category || '', colWidths[0] - 4);
+        doc.text(categoryText, currentX + 2, tableY + 4);
+        currentX += colWidths[0];
+        
+        // Basis
+        doc.text(category.basis || '', currentX + 2, tableY + 4);
+        currentX += colWidths[1];
+        
+        // Rate
+        doc.text(category.rate || '', currentX + 2, tableY + 4);
+        currentX += colWidths[2];
+        
+        // Cost
+        doc.setFont(undefined, 'bold');
+        doc.text(formatCurrency(category.cost || 0), currentX + 2, tableY + 4);
+        
+        tableY += rowHeight;
+      });
+      
+      // Add separator line
+      doc.setDrawColor(200, 200, 200);
+      doc.line(x, tableY, x + width, tableY);
+      tableY += 5;
+      
+      // Subtotal row
+      doc.setFontSize(10);
+      doc.setFont(undefined, 'bold');
+      doc.setTextColor(51, 51, 51);
+      doc.text('Subtotal', x + 2, tableY);
+      doc.text(formatCurrency(totalsSummary.subtotal), x + width - 35, tableY);
+      tableY += 7;
+      
+      // Sales Tax row
+      const taxText = totalsSummary.salesTaxRate
+        ? `Sales Tax (${totalsSummary.salesTaxRate.toFixed(4)}%)`
+        : 'Sales Tax';
+      doc.setFont(undefined, 'normal');
+      doc.text(taxText, x + 2, tableY);
+      doc.setFont(undefined, 'bold');
+      doc.text(formatCurrency(totalsSummary.salesTax), x + width - 35, tableY);
+      tableY += 7;
+      
+      // Total row with background
+      doc.setFillColor(230, 230, 230);
+      doc.rect(x, tableY - 5, width, 10, 'F');
+      
+      doc.setFontSize(12);
+      doc.setFont(undefined, 'bold');
+      doc.setTextColor(30, 64, 175);
+      doc.text('Total Amount', x + 2, tableY);
+      doc.text(formatCurrency(totalsSummary.totalAmount), x + width - 35, tableY);
+      tableY += 10;
+      
+      // NET COST OF SUPPLEMENT for supplement invoices
+      if (isSupplementInvoice) {
+        doc.setFillColor(30, 64, 175);
+        doc.rect(x, tableY - 5, width, 10, 'F');
+        
+        doc.setFontSize(12);
+        doc.setFont(undefined, 'bold');
+        doc.setTextColor(255, 255, 255);
+        doc.text('NET COST OF SUPPLEMENT', x + 2, tableY);
+        doc.text(formatCurrency(totalsSummary.totalAmount || totalsSummary.netCostOfSupplement || 0), x + width - 35, tableY);
+        tableY += 12;
+      }
+      
+      return tableY;
     }
 
     // Footer
