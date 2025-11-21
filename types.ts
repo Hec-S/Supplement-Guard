@@ -115,6 +115,21 @@ export interface AutomotiveLineItem extends InvoiceLineItem {
   priceVariancePercentFromMarket?: number;
 }
 
+// Supplement tracking interfaces
+export interface SupplementEntry {
+  supplementNumber: number; // 1, 2, 3, 4, or 5
+  supplementCode: string;   // "S01", "S02", "S03", "S04", "S05"
+  amount: number;           // Dollar amount for this supplement
+  adjuster?: string;        // Adjuster name if available
+}
+
+export interface CumulativeEffects {
+  estimateAmount: number;           // Original estimate amount
+  supplements: SupplementEntry[];   // Array of all supplements
+  workfileTotal: number;            // Total of estimate + all supplements
+  netCostOfRepairs: number;         // Final net cost
+}
+
 // Totals Summary Interface for category-based totals
 export interface TotalsSummaryCategory {
   category: string;
@@ -140,6 +155,7 @@ export interface Invoice {
   tax: number;
   total: number;
   totalsSummary?: TotalsSummary; // Optional totals summary extracted from invoice
+  cumulativeEffects?: CumulativeEffects; // Optional cumulative effects for supplement invoices
 }
 
 export interface ClaimData {

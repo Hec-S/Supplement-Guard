@@ -55,6 +55,32 @@ const invoiceLineItemSchema = {
   required: ['id', 'category', 'description', 'quantity', 'price', 'total']
 };
 
+const supplementEntrySchema = {
+  type: Type.OBJECT,
+  properties: {
+    supplementNumber: { type: Type.INTEGER, description: "Supplement number (1, 2, 3, 4, or 5)" },
+    supplementCode: { type: Type.STRING, description: "Supplement code (S01, S02, S03, S04, or S05)" },
+    amount: { type: Type.NUMBER, description: "Dollar amount for this supplement" },
+    adjuster: { type: Type.STRING, nullable: true, description: "Adjuster name if available" }
+  },
+  required: ['supplementNumber', 'supplementCode', 'amount']
+};
+
+const cumulativeEffectsSchema = {
+  type: Type.OBJECT,
+  properties: {
+    estimateAmount: { type: Type.NUMBER, description: "Original estimate amount" },
+    supplements: {
+      type: Type.ARRAY,
+      items: supplementEntrySchema,
+      description: "Array of all supplements found (S01, S02, S03, S04, S05)"
+    },
+    workfileTotal: { type: Type.NUMBER, description: "Total of estimate + all supplements" },
+    netCostOfRepairs: { type: Type.NUMBER, description: "Final net cost of repairs" }
+  },
+  required: ['estimateAmount', 'supplements', 'workfileTotal', 'netCostOfRepairs']
+};
+
 const totalsSummaryCategorySchema = {
   type: Type.OBJECT,
   properties: {
@@ -96,6 +122,11 @@ const invoiceSchema = {
       ...totalsSummarySchema,
       nullable: true,
       description: "Totals summary table if present in the invoice (look for 'TOTALS SUMMARY' section)"
+    },
+    cumulativeEffects: {
+      ...cumulativeEffectsSchema,
+      nullable: true,
+      description: "Cumulative effects table if present in supplement invoice (look for 'CUMULATIVE EFFECTS OF SUPPLEMENT(S)' section)"
     }
   },
   required: ['fileName', 'lineItems', 'subtotal', 'tax', 'total']
@@ -501,6 +532,65 @@ Follow these instructions precisely:
    
    **IMPORTANT:** The "Workfile Total" or "NET COST OF REPAIRS" in the supplement represents the COMPLETE total including the original estimate PLUS all supplements. This is the TRUE final amount.
 
+6b. **CUMULATIVE EFFECTS OF SUPPLEMENT(S) Extraction (🚨 CRITICAL FOR SUPPLEMENT INVOICES 🚨):**
+   
+   **🔍 LOOK FOR THE "CUMULATIVE EFFECTS OF SUPPLEMENT(S)" TABLE IN SUPPLEMENT INVOICES.**
+   
+   **WHERE TO FIND IT:**
+   - Usually appears AFTER the TOTALS SUMMARY section
+   - May be on a separate page
+   - Has a distinct header: "CUMULATIVE EFFECTS OF SUPPLEMENT(S)"
+   - Contains a table with columns: [Description] | Amount | Adjuster
+   
+   **WHAT IT CONTAINS:**
+   This table shows the breakdown of the original estimate plus each supplement:
+   - **Estimate** - The original estimate amount (first row)
+   - **Supplement S01** - First supplement amount (if present)
+   - **Supplement S02** - Second supplement amount (if present)
+   - **Supplement S03** - Third supplement amount (if present)
+   - **Supplement S04** - Fourth supplement amount (if present)
+   - **Supplement S05** - Fifth supplement amount (if present)
+   - **Workfile Total** - Sum of estimate + all supplements
+   - **NET COST OF REPAIRS** - Final net cost (usually same as Workfile Total)
+   
+   **EXTRACTION INSTRUCTIONS:**
+   1. **Identify the Estimate row** - Extract the amount (this is the original estimate)
+   2. **Count ALL supplement rows** - Look for S01, S02, S03, S04, S05
+   3. **For EACH supplement found**, extract:
+      - supplementNumber: 1, 2, 3, 4, or 5 (from S01, S02, etc.)
+      - supplementCode: "S01", "S02", "S03", "S04", or "S05"
+      - amount: The dollar amount for that supplement
+      - adjuster: The adjuster name if present in the third column
+   4. **Extract Workfile Total** - The cumulative total
+   5. **Extract NET COST OF REPAIRS** - The final amount
+   
+   **🚨 CRITICAL REQUIREMENTS:**
+   1. **ALWAYS scan for this table** in supplement invoices
+   2. **Count ALL supplements present** - there may be 1, 2, 3, 4, or 5 supplements
+   3. **Extract EACH supplement individually** - don't combine them
+   4. **Preserve the supplement order** - S01 first, then S02, etc.
+   5. **If the table exists, you MUST extract it** - this is non-negotiable
+   6. **If no CUMULATIVE EFFECTS table is found**, set cumulativeEffects to null
+   
+   **EXAMPLE - If you see this table in the supplement invoice:**
+   
+   CUMULATIVE EFFECTS OF SUPPLEMENT(S)
+   
+                                    Amount      Adjuster
+   Estimate                      $10,000.00
+   Supplement S01                 $2,500.00    John Doe
+   Supplement S02                 $1,200.00    Jane Smith
+   Supplement S03                   $800.00    John Doe
+   
+   Workfile Total:               $14,500.00
+   NET COST OF REPAIRS:          $14,500.00
+   
+   **You must extract it as this JSON structure in the cumulativeEffects field:**
+   - estimateAmount: 10000.00
+   - supplements array with 3 entries (S01, S02, S03)
+   - workfileTotal: 14500.00
+   - netCostOfRepairs: 14500.00
+
 7. **TOTALS SUMMARY Extraction (🚨 CRITICAL - HIGHEST PRIORITY 🚨):**
    
    **🔍 LOOK FOR A "TOTALS SUMMARY" TABLE IN BOTH ORIGINAL AND SUPPLEMENT INVOICES.**
@@ -598,7 +688,8 @@ IMPORTANT NOTES:
 - Set fraudScore to 0 and fraudReasons to empty array (not used)
 - **CRITICAL:** The "Workfile Total" or "NET COST OF REPAIRS" in supplement files represents the COMPLETE claim total (original estimate + all supplements)
 - Always extract and report this complete workfile total for accurate financial reporting
-- **NEW CRITICAL REQUIREMENT:** Extract the TOTALS SUMMARY table if present in the invoice - this provides the authoritative cost breakdown by category
+- **CRITICAL REQUIREMENT:** Extract the TOTALS SUMMARY table if present in the invoice - this provides the authoritative cost breakdown by category
+- **CRITICAL REQUIREMENT:** Extract the CUMULATIVE EFFECTS OF SUPPLEMENT(S) table if present in supplement invoices - this shows the breakdown of estimate + each supplement (S01, S02, S03, S04, S05) and is essential for understanding how many supplements exist and their individual amounts
 
 Return ONLY a single, valid JSON object that adheres to the provided schema. Do not include any other text or markdown formatting.`;
 
@@ -632,10 +723,17 @@ Return ONLY a single, valid JSON object that adheres to the provided schema. Do 
 
     validateClaimData(parsedData);
     
-    // Debug logging for TOTALS SUMMARY extraction
+    // Debug logging for TOTALS SUMMARY and CUMULATIVE EFFECTS extraction
     console.log('=== OCR EXTRACTION DEBUG ===');
     console.log('Original Invoice totalsSummary:', parsedData.originalInvoice.totalsSummary);
     console.log('Supplement Invoice totalsSummary:', parsedData.supplementInvoice.totalsSummary);
+    console.log('Supplement Invoice cumulativeEffects:', parsedData.supplementInvoice.cumulativeEffects);
+    if (parsedData.supplementInvoice.cumulativeEffects) {
+      console.log('Number of supplements found:', parsedData.supplementInvoice.cumulativeEffects.supplements.length);
+      parsedData.supplementInvoice.cumulativeEffects.supplements.forEach((supp, idx) => {
+        console.log(`  Supplement ${idx + 1}: ${supp.supplementCode} - $${supp.amount.toFixed(2)}`);
+      });
+    }
     console.log('===========================');
     
     return parsedData as ClaimData;

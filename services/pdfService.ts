@@ -53,9 +53,15 @@ export const generatePdfReport = (claimData: ClaimData, comparisonAnalysis?: Com
     
     currentY += 8;
     
+    // Debug logging to see what data we have
+    console.log('=== PDF HEADER DEBUG ===');
+    console.log('Claim Number:', claimData.claimNumber);
+    console.log('Vehicle Info:', claimData.vehicleInfo);
+    console.log('=======================');
+    
     // Create prominent header info section with claim number and vehicle
     doc.setFillColor(240, 245, 255); // Light blue background
-    const headerBoxHeight = 20;
+    const headerBoxHeight = claimData.vehicleInfo ? 25 : 15; // Adjust height based on content
     doc.rect(safeZone - 5, currentY - 5, maxContentWidth + 10, headerBoxHeight, 'F');
     
     // Use actual Claim # if available, otherwise fall back to generated ID
@@ -66,10 +72,17 @@ export const generatePdfReport = (claimData: ClaimData, comparisonAnalysis?: Com
     // Create vehicle text if vehicle info is available
     let vehicleText = '';
     if (claimData.vehicleInfo) {
-      const { year, make, model, vin } = claimData.vehicleInfo;
-      const vehicleDescription = [year, make, model].filter(Boolean).join(' ');
-      if (vehicleDescription) {
-        vehicleText = vehicleDescription;
+      const { year, make, model, vin, description } = claimData.vehicleInfo;
+      
+      // Try to use the full description first if available
+      if (description) {
+        vehicleText = description;
+      } else {
+        // Otherwise build from year, make, model
+        const vehicleDescription = [year, make, model].filter(Boolean).join(' ');
+        if (vehicleDescription) {
+          vehicleText = vehicleDescription;
+        }
       }
     }
     
@@ -82,9 +95,11 @@ export const generatePdfReport = (claimData: ClaimData, comparisonAnalysis?: Com
     // Display vehicle info prominently if available
     if (vehicleText) {
       doc.setTextColor(51, 51, 51); // Dark gray
-      doc.setFontSize(14);
+      doc.setFontSize(12);
       doc.setFont(undefined, 'bold');
-      doc.text(`Vehicle: ${vehicleText}`, safeZone, currentY + 12);
+      // Wrap long vehicle descriptions
+      const wrappedVehicle = doc.splitTextToSize(`Vehicle: ${vehicleText}`, maxContentWidth - 40);
+      doc.text(wrappedVehicle, safeZone, currentY + 13);
     }
     
     // Position date text on the right
@@ -95,7 +110,7 @@ export const generatePdfReport = (claimData: ClaimData, comparisonAnalysis?: Com
     const dateWidth = doc.getTextWidth(dateText);
     doc.text(dateText, pageWidth - safeZone - dateWidth, currentY + 8);
     
-    currentY += headerBoxHeight;
+    currentY += headerBoxHeight + 5;
 
     // Line separator
     currentY += 10;
@@ -510,12 +525,32 @@ Please note: Any misrepresentation of repairs, labor, parts, or supplements—in
     currentY += 20;
     doc.setTextColor(51, 51, 51); // Reset to dark gray
     
-    // Create cumulative effects table
+    // Create cumulative effects table - use extracted data if available, otherwise calculate
     const cumulativeHeaders = ['', 'Amount', 'Adjuster'];
-    const cumulativeData = [
-      ['Estimate', formatCurrency(claimData.originalInvoice.total), ''],
-      ['Supplement S01', formatCurrency(claimData.supplementInvoice.total - claimData.originalInvoice.total), '']
-    ];
+    let cumulativeData: string[][] = [];
+    
+    if (claimData.supplementInvoice.cumulativeEffects) {
+      // Use the extracted cumulative effects data
+      const cumEffects = claimData.supplementInvoice.cumulativeEffects;
+      
+      // Add Estimate row
+      cumulativeData.push(['Estimate', formatCurrency(cumEffects.estimateAmount), '']);
+      
+      // Add each supplement row
+      cumEffects.supplements.forEach(supp => {
+        cumulativeData.push([
+          `Supplement ${supp.supplementCode}`,
+          formatCurrency(supp.amount),
+          supp.adjuster || ''
+        ]);
+      });
+    } else {
+      // Fallback to old calculation if cumulative effects not extracted
+      cumulativeData = [
+        ['Estimate', formatCurrency(claimData.originalInvoice.total), ''],
+        ['Supplement S01', formatCurrency(claimData.supplementInvoice.total - claimData.originalInvoice.total), '']
+      ];
+    }
     
     // Calculate column widths
     const cumColWidths = [80, 40, 40];
@@ -577,6 +612,10 @@ Please note: Any misrepresentation of repairs, labor, parts, or supplements—in
     doc.line(safeZone, cumTableY, safeZone + maxContentWidth, cumTableY);
     cumTableY += 5;
     
+    // Determine the workfile total - use extracted value if available
+    const workfileTotal = claimData.supplementInvoice.cumulativeEffects?.workfileTotal || claimData.supplementInvoice.total;
+    const netCostOfRepairs = claimData.supplementInvoice.cumulativeEffects?.netCostOfRepairs || claimData.supplementInvoice.total;
+    
     // Workfile Total row with gray background
     doc.setFillColor(230, 230, 230);
     doc.rect(safeZone, cumTableY - 2, maxContentWidth, 10, 'F');
@@ -586,7 +625,7 @@ Please note: Any misrepresentation of repairs, labor, parts, or supplements—in
     doc.setTextColor(51, 51, 51);
     doc.text('Workfile Total:', safeZone + 2, cumTableY + 5);
     doc.text('$', safeZone + cumColWidths[0] + 2, cumTableY + 5);
-    doc.text(formatCurrency(claimData.supplementInvoice.total).replace('$', ''), safeZone + cumColWidths[0] + 10, cumTableY + 5);
+    doc.text(formatCurrency(workfileTotal).replace('$', ''), safeZone + cumColWidths[0] + 10, cumTableY + 5);
     cumTableY += 12;
     
     // NET COST OF REPAIRS row with gray background
@@ -598,7 +637,7 @@ Please note: Any misrepresentation of repairs, labor, parts, or supplements—in
     doc.setTextColor(51, 51, 51);
     doc.text('NET COST OF REPAIRS:', safeZone + 2, cumTableY + 5);
     doc.text('$', safeZone + cumColWidths[0] + 2, cumTableY + 5);
-    doc.text(formatCurrency(claimData.supplementInvoice.total).replace('$', ''), safeZone + cumColWidths[0] + 10, cumTableY + 5);
+    doc.text(formatCurrency(netCostOfRepairs).replace('$', ''), safeZone + cumColWidths[0] + 10, cumTableY + 5);
     cumTableY += 12;
     
     currentY = cumTableY + 10;
