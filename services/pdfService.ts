@@ -710,12 +710,89 @@ Please note: Any misrepresentation of repairs, labor, parts, or supplements—in
     currentY += 10;
     checkPageSpace(80);
     
-    // Filter items from SUPPLEMENT INVOICE ONLY that need warranty (contain "Rpr" or "Repl" in description)
+    // Filter for ONLY newly added physical parts from supplement that weren't in original estimate
+    // Uses priority-based part recognition: Part Number > Operation Code > Part Cost
     const warrantyItems = claimData.supplementInvoice.lineItems
       .filter(item => {
-        const desc = item.description;
-        // Check for "Rpr" or "Repl" (case-sensitive to match actual abbreviations)
-        return desc.includes('Rpr') || desc.includes('Repl');
+        // Must be a NEW item (not in original estimate)
+        if (!item.isNew) return false;
+        
+        const desc = item.description.toLowerCase();
+        const op = item.operation?.toLowerCase() || '';
+        
+        // PRIORITY 1: Part Number Detection (Most Reliable)
+        // If item has a part number, it's definitely a physical part
+        // Part numbers are typically alphanumeric codes (e.g., "0471530AA00ZZ")
+        if (item.partNumber && item.partNumber !== '-' && item.partNumber.trim() !== '') {
+          // Still exclude pure labor operations even with part numbers
+          if (op.includes('r&i') || op.includes('refn') || op.includes('blnd')) {
+            return false;
+          }
+          return true;
+        }
+        
+        // PRIORITY 2: Operation Code + Part Cost
+        // "Repl" (Replace) or "R&R" operations with part cost indicate physical parts
+        if ((op.includes('repl') || op.includes('r&r')) && item.partCost !== undefined && item.partCost > 0) {
+          return true;
+        }
+        
+        // PRIORITY 3: Part Cost Alone
+        // If item has a part cost > 0, it likely includes a physical part
+        // This works even when labor is "Incl." (included in the line)
+        if (item.partCost !== undefined && item.partCost > 0) {
+          // Exclude if it's clearly a labor-only or service item
+          if (op.includes('r&i') || op.includes('refn') || op.includes('blnd') ||
+              op.includes('rpr') || op.includes('repair') || op.includes('paint')) {
+            return false;
+          }
+          
+          if (desc.includes('labor only') || desc.includes('diagnostic') ||
+              desc.includes('refinish') || desc.includes('blend') ||
+              desc.includes('sublet') || desc.includes('service')) {
+            return false;
+          }
+          
+          return true;
+        }
+        
+        // FALLBACK: Keyword-based detection for items without cost breakdown
+        // Exclude labor-related operations
+        if (op.includes('r&i') || op.includes('refn') || op.includes('blnd') ||
+            op.includes('rpr') || op.includes('repair') || op.includes('paint')) {
+          return false;
+        }
+        
+        // Exclude labor-related descriptions
+        if (desc.includes('labor') || desc.includes('diagnostic') ||
+            desc.includes('repair') || desc.includes('refinish') ||
+            desc.includes('blend') || desc.includes('paint') ||
+            desc.includes('r&i') || desc.includes('remove and install') ||
+            desc.includes('sublet') || desc.includes('service')) {
+          return false;
+        }
+        
+        // Exclude materials and supplies
+        if (desc.includes('material') || desc.includes('supplies') ||
+            desc.includes('consumable')) {
+          return false;
+        }
+        
+        // Check for physical part keywords
+        const hasPartKeywords =
+          op.includes('repl') ||
+          desc.includes('part') || desc.includes('bumper') ||
+          desc.includes('panel') || desc.includes('fender') ||
+          desc.includes('door') || desc.includes('hood') ||
+          desc.includes('trunk') || desc.includes('quarter') ||
+          desc.includes('mirror') || desc.includes('light') ||
+          desc.includes('lens') || desc.includes('grille') ||
+          desc.includes('molding') || desc.includes('trim') ||
+          desc.includes('bracket') || desc.includes('clip') ||
+          desc.includes('sensor') || desc.includes('module') ||
+          desc.includes('assembly') || desc.includes('cover');
+        
+        return hasPartKeywords;
       });
     
     if (warrantyItems.length > 0) {
@@ -727,39 +804,40 @@ Please note: Any misrepresentation of repairs, labor, parts, or supplements—in
       doc.text(titleLines, safeZone, currentY);
       currentY += titleLines.length * 6 + 8;
       
-      // Warranty notice
+      // Warranty notice - updated to reflect new parts only
       doc.setTextColor(102, 102, 102);
       doc.setFont(undefined, 'normal');
       doc.setFontSize(10);
-      const warrantyNotice = 'The following supplement items require warranty coverage as they involve repairs or replacements:';
+      const warrantyNotice = 'Based on the body shop you selected, the following parts should be covered under their warranty since they were newly installed or replaced. Please note that Fred Loya is not involved in, nor responsible for, any repairs performed by the body shop.';
       const noticeLines = doc.splitTextToSize(warrantyNotice, maxContentWidth);
       doc.text(noticeLines, safeZone, currentY);
       currentY += noticeLines.length * 4 + 8;
       
-      // Create warranty items table - REMOVED "Warranty Status" column
-      const warrantyHeaders = ['Description', 'Type', 'Original Price', 'New Price', 'Change'];
+      // Create warranty items table - simplified for parts only
+      const warrantyHeaders = ['Part Description', 'Part Number', 'Quantity', 'Unit Price', 'Total Cost'];
       const warrantyData = warrantyItems.map(item => {
-        // Find the corresponding original item to get price comparison
-        const originalItem = claimData.originalInvoice.lineItems.find(
-          orig => orig.description.toLowerCase().trim() === item.description.toLowerCase().trim()
-        );
+        // Use AI-extracted part number first, then try regex extraction as fallback
+        let partNumber = '-';
         
-        const originalTotal = originalItem ? originalItem.total : 0;
-        const priceChange = item.total - originalTotal;
-        
-        // Determine the type of work based on description
-        const desc = item.description;
-        let workType = '';
-        if (desc.includes('Repl')) workType = 'REPLACEMENT';
-        else if (desc.includes('Rpr')) workType = 'REPAIR';
-        else workType = 'SERVICE';
+        // Priority 1: Use AI-extracted part number from OCR
+        if (item.partNumber && item.partNumber.trim() !== '' && item.partNumber !== '-') {
+          partNumber = item.partNumber;
+        }
+        // Priority 2: Try to extract from description (fallback)
+        else {
+          const partNumberMatch = item.description.match(/\(([^)]+)\)/) ||
+                                 item.description.match(/[-–]\s*([A-Z0-9-]+)$/);
+          if (partNumberMatch) {
+            partNumber = partNumberMatch[1];
+          }
+        }
         
         return [
           item.description,
-          workType,
-          originalItem ? formatCurrency(originalTotal) : '-',
-          formatCurrency(item.total),
-          priceChange !== 0 ? formatCurrency(priceChange) : '-'
+          partNumber,
+          item.quantity.toString(),
+          formatCurrency(item.price),
+          formatCurrency(item.total)
         ];
       });
       
@@ -768,7 +846,7 @@ Please note: Any misrepresentation of repairs, labor, parts, or supplements—in
       currentY += (warrantyData.length + 1) * 8 + 15;
     }
 
-    // Helper function to create warranty table with red highlighting
+    // Helper function to create warranty table for new parts
     function createWarrantyTable(
       doc: jsPDF,
       headers: string[],
@@ -777,7 +855,7 @@ Please note: Any misrepresentation of repairs, labor, parts, or supplements—in
       y: number,
       width: number
     ): void {
-      const colWidths = [70, 30, 30, 30, 30]; // Adjusted column widths for 5 columns (removed Warranty Status)
+      const colWidths = [70, 35, 20, 30, 30]; // Adjusted for: Description, Part#, Qty, Unit Price, Total
       let tableY = y;
       
       // Check if table fits on current page
@@ -851,37 +929,25 @@ Please note: Any misrepresentation of repairs, labor, parts, or supplements—in
           doc.rect(x, tableY, width, maxRowHeight, 'F');
         }
         
-        // Draw cell content with color coding
+        // Draw cell content with emphasis on new parts
         currentX = x;
         wrappedCells.forEach((cellLines, colIndex) => {
-          // Set colors based on column
-          if (colIndex === 1) {
-            // Work type column - color coded
-            const workType = row[1];
-            if (workType === 'REPLACEMENT') {
-              doc.setTextColor(220, 38, 127); // Pink for replacement
-            } else if (workType === 'REPAIR') {
-              doc.setTextColor(234, 88, 12); // Orange for repair
-            } else {
-              doc.setTextColor(51, 51, 51); // Default color
-            }
+          // Set colors and formatting based on column
+          if (colIndex === 0) {
+            // Part description - bold
+            doc.setTextColor(51, 51, 51);
             doc.setFont(undefined, 'bold');
+          } else if (colIndex === 1) {
+            // Part number - blue color to highlight
+            doc.setTextColor(59, 130, 246);
+            doc.setFont(undefined, 'normal');
           } else if (colIndex === 4) {
-            // Price change column - color based on increase/decrease
-            const changeValue = row[4];
-            if (changeValue && changeValue !== '-') {
-              if (changeValue.includes('-')) {
-                doc.setTextColor(0, 128, 0); // Green for decrease
-              } else {
-                doc.setTextColor(255, 0, 0); // Red for increase
-              }
-              doc.setFont(undefined, 'bold');
-            } else {
-              doc.setTextColor(51, 51, 51); // Default color
-              doc.setFont(undefined, 'normal');
-            }
+            // Total cost - bold to emphasize
+            doc.setTextColor(51, 51, 51);
+            doc.setFont(undefined, 'bold');
           } else {
-            doc.setTextColor(51, 51, 51); // Default color
+            // Quantity and unit price - normal
+            doc.setTextColor(51, 51, 51);
             doc.setFont(undefined, 'normal');
           }
           

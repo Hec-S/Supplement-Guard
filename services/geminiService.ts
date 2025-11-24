@@ -384,12 +384,72 @@ When you see codes like S01, S02, S03, S04, S05 in the operation column:
 - X = Tax-exempt item (not subject to sales tax)
 - T = Taxable miscellaneous charge (subject to sales tax)
 
-**PART INFORMATION:**
-- Part numbers identify specific vehicle parts (e.g., 3CN807421BGRU = Bumper cover)
+**PART INFORMATION & PART NUMBER EXTRACTION (🚨 CRITICAL 🚨):**
+
+**ALWAYS EXTRACT PART NUMBERS WHEN VISIBLE - THIS IS MANDATORY**
+
+Part numbers are the PRIMARY identifier for physical parts and MUST be extracted for warranty tracking.
+
+**WHERE TO FIND PART NUMBERS:**
+- Dedicated "Part #" or "Part Number" column in the invoice table
+- After the description text (e.g., "Bumper Cover 0471530AA00ZZ")
+- In a separate row below the description
+- In parentheses after the description (e.g., "Bumper Cover (0471530AA00ZZ)")
+- Between the operation code and description
+
+**PART NUMBER FORMATS TO RECOGNIZE:**
+- Alphanumeric codes: 10-15 characters (e.g., "0471530AA00ZZ", "3CN807421BGRU", "1K0615301AA")
+- May contain letters, numbers, and hyphens
+- Usually ALL CAPS or mixed case
+- Examples from real invoices:
+  • "0471530AA00ZZ" (Bumper cover)
+  • "3CN807421BGRU" (Rear bumper)
+  • "1K0615301AA" (Brake rotor)
+  • "5Q0945095" (Tail lamp)
+
+**EXTRACTION RULES:**
+1. **SCAN EVERY LINE ITEM** for part numbers
+2. **EXTRACT TO partNumber FIELD** - do not leave null if a part number exists
+3. **For replacement operations (Repl, R&R)** - part numbers are almost always present
+4. **For labor-only operations (R&I, Refn, Blnd)** - part numbers are usually absent
+5. **If multiple formats exist** - prefer the dedicated part number column
+6. **If part number is clearly visible** - extract it exactly as shown
+
+**VISUAL LAYOUT EXAMPLES:**
+
+Example 1: Dedicated Part Number Column
+┌──────────────────────────────────────────────────────────┐
+│ Line  Oper  Description           Part #        Qty  Price│
+│ 62    S01   Repl Bumper cover     0471530AA00ZZ  1  492.90│
+└──────────────────────────────────────────────────────────┘
+**Extract:** partNumber: "0471530AA00ZZ"
+
+Example 2: Part Number After Description
+┌──────────────────────────────────────────────────────────┐
+│ Repl Bumper cover w/o prk sensor 0471530AA00ZZ  $492.90  │
+└──────────────────────────────────────────────────────────┘
+**Extract:** partNumber: "0471530AA00ZZ"
+
+Example 3: Part Number in Separate Row
+┌──────────────────────────────────────────────────────────┐
+│ Repl Rear Bumper Cover                                    │
+│   Part #: 3CN807421BGRU                    $298.44        │
+└──────────────────────────────────────────────────────────┘
+**Extract:** partNumber: "3CN807421BGRU"
+
+**OEM vs AFTERMARKET IDENTIFICATION:**
 - Part numbers typically indicate OEM (Original Equipment Manufacturer) parts
 - Generic descriptions without part numbers may indicate aftermarket parts
 - Look for "OEM", "OE", "Genuine", "Original" to identify OEM parts
 - Look for "Aftermarket", "AM", "Alternative" to identify aftermarket parts
+- If part number is present → likely OEM, set isOEM: true
+- If no part number and says "Aftermarket" → set isOEM: false
+
+**CRITICAL REQUIREMENTS:**
+- 🚨 **NEVER leave partNumber null if a part number is visible in the invoice**
+- 🚨 **Extract part numbers for ALL replacement operations (Repl, R&R)**
+- 🚨 **Part numbers are ESSENTIAL for warranty tracking**
+- 🚨 **Double-check every line item for part numbers before finalizing extraction**
 
 **OVERLAPS (NEGATIVE TIME ADJUSTMENTS):**
 - Major Overlap = Negative time to prevent double-charging when operations overlap
