@@ -1,10 +1,11 @@
 import React, { useState, useMemo } from 'react';
-import { Invoice, InvoiceLineItem } from '../types';
+import { Invoice, InvoiceLineItem, ChargeType, ChargeClassificationResult } from '../types';
 import {
   formatCurrency,
   formatPercentage,
   formatDecimal
 } from '../utils/formatters';
+import { classifyCharge } from '../services/chargeClassificationService';
 
 interface InvoiceViewerProps {
   originalInvoice: Invoice;
@@ -22,9 +23,82 @@ interface LineItemComparison {
   priceVariance: number;
   totalVariance: number;
   percentageChange: number | null;
+  classification?: ChargeClassificationResult;
 }
 
-// Remove local formatting functions - now using centralized utilities
+// Charge type styling configuration
+const CHARGE_TYPE_STYLES: Record<ChargeType, {
+  label: string;
+  color: string;
+  bgColor: string;
+  textColor: string;
+  icon: string;
+}> = {
+  [ChargeType.PART_WITH_LABOR]: {
+    label: 'PART + LABOR',
+    color: 'blue',
+    bgColor: 'bg-blue-100',
+    textColor: 'text-blue-800',
+    icon: '🔧'
+  },
+  [ChargeType.LABOR_ONLY]: {
+    label: 'LABOR ONLY',
+    color: 'green',
+    bgColor: 'bg-green-100',
+    textColor: 'text-green-800',
+    icon: '⚙️'
+  },
+  [ChargeType.MATERIAL]: {
+    label: 'MATERIAL',
+    color: 'purple',
+    bgColor: 'bg-purple-100',
+    textColor: 'text-purple-800',
+    icon: '🎨'
+  },
+  [ChargeType.SUBLET]: {
+    label: 'SUBLET',
+    color: 'orange',
+    bgColor: 'bg-orange-100',
+    textColor: 'text-orange-800',
+    icon: '🏢'
+  },
+  [ChargeType.MISCELLANEOUS]: {
+    label: 'MISC',
+    color: 'gray',
+    bgColor: 'bg-gray-100',
+    textColor: 'text-gray-800',
+    icon: '📋'
+  },
+  [ChargeType.UNKNOWN]: {
+    label: 'UNKNOWN',
+    color: 'red',
+    bgColor: 'bg-red-100',
+    textColor: 'text-red-800',
+    icon: '❓'
+  }
+};
+
+// Charge Type Badge Component
+const ChargeTypeBadge: React.FC<{ type: ChargeType; confidence?: number }> = ({ type, confidence }) => {
+  const style = CHARGE_TYPE_STYLES[type];
+  
+  return (
+    <div className="flex items-center gap-1">
+      <span className={`
+        inline-flex items-center gap-1 px-2 py-1 rounded-md text-xs font-semibold
+        ${style.bgColor} ${style.textColor} border border-${style.color}-300
+      `}>
+        <span>{style.icon}</span>
+        <span>{style.label}</span>
+      </span>
+      {confidence !== undefined && confidence < 0.7 && (
+        <span className="text-xs text-yellow-600" title={`Confidence: ${(confidence * 100).toFixed(0)}%`}>
+          ⚠️
+        </span>
+      )}
+    </div>
+  );
+};
 
 const ChangeIndicator: React.FC<{ value: number, isCurrency: boolean }> = ({ value, isCurrency }) => {
     if (value === 0) return null;
@@ -98,8 +172,9 @@ const EnhancedComparisonTable: React.FC<{
   comparisons: LineItemComparison[],
   viewMode: 'side-by-side' | 'line-by-line',
   originalInvoice: Invoice,
-  supplementInvoice: Invoice
-}> = ({ comparisons, viewMode, originalInvoice, supplementInvoice }) => {
+  supplementInvoice: Invoice,
+  chargeSummary: Record<ChargeType, { count: number; total: number; partCost: number; laborCost: number }>
+}> = ({ comparisons, viewMode, originalInvoice, supplementInvoice, chargeSummary }) => {
   
   const totalVariance = supplementInvoice.total - originalInvoice.total;
   const totalVariancePercent = ((totalVariance / originalInvoice.total) * 100);
@@ -152,21 +227,46 @@ const EnhancedComparisonTable: React.FC<{
                 return getTypePriority(a) - getTypePriority(b);
               }).map((comparison) => (
                 <div key={comparison.id} className="group hover:bg-slate-50 rounded-lg p-4 border border-transparent hover:border-slate-200 transition-all">
-                  <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
-                    {/* Item Details */}
-                    <div className="flex-1 min-w-0">
-                      <div className={`font-medium text-sm leading-tight ${
-                        comparison.type === 'new' ? 'text-red-600' : 'text-slate-800'
-                      }`}>
-                        {comparison.description}
+                  <div className="flex flex-col gap-3">
+                    {/* Header Row with Description and Charge Type */}
+                    <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-2">
+                      <div className="flex-1 min-w-0">
+                        <div className={`font-medium text-sm leading-tight ${
+                          comparison.type === 'new' ? 'text-red-600' : 'text-slate-800'
+                        }`}>
+                          {comparison.description}
+                        </div>
                       </div>
-                      <div className="flex items-center gap-4 mt-1 text-xs text-slate-500">
-                        <span>Qty: {comparison.supplement.quantity}</span>
-                        <span>•</span>
-                        <span>Unit: {formatCurrency(comparison.supplement.price)}</span>
-                        <span>•</span>
-                        <span>Total: {formatCurrency(comparison.supplement.total)}</span>
-                      </div>
+                      {comparison.classification && (
+                        <div className="flex-shrink-0">
+                          <ChargeTypeBadge
+                            type={comparison.classification.chargeType}
+                            confidence={comparison.classification.confidence}
+                          />
+                        </div>
+                      )}
+                    </div>
+                    
+                    {/* Cost Breakdown Row */}
+                    <div className="flex items-center gap-4 text-xs text-slate-500">
+                      <span>Qty: {comparison.supplement.quantity}</span>
+                      <span>•</span>
+                      <span>Unit: {formatCurrency(comparison.supplement.price)}</span>
+                      {comparison.classification?.costBreakdown && (
+                        <>
+                          <span>•</span>
+                          <span className="text-blue-600">Part: {formatCurrency(comparison.classification.costBreakdown.partCost)}</span>
+                          <span>•</span>
+                          <span className="text-green-600 font-semibold">
+                            Labor: {formatCurrency(comparison.classification.costBreakdown.laborCost)}
+                            {!comparison.classification.costBreakdown.isValidated && comparison.supplement.total === 0 && (
+                              <span className="text-xs text-orange-600 ml-1" title="Calculated from labor hours × rate">*</span>
+                            )}
+                          </span>
+                        </>
+                      )}
+                      <span>•</span>
+                      <span className="font-semibold">Total: {formatCurrency(comparison.supplement.total)}</span>
                     </div>
                     
                     {/* Variance Display */}
@@ -207,6 +307,33 @@ const EnhancedComparisonTable: React.FC<{
             </div>
             <div className="text-sm text-slate-600">Total Variance ({formatPercentage(totalVariancePercent)})</div>
           </div>
+        </div>
+      </div>
+
+      {/* Charge Type Summary */}
+      <div className="bg-white rounded-lg border border-slate-200 p-4">
+        <h4 className="text-md font-semibold text-slate-800 mb-3">Breakdown by Charge Type</h4>
+        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
+          {(Object.entries(chargeSummary) as [ChargeType, { count: number; total: number; partCost: number; laborCost: number }][]).map(([chargeType, data]) => {
+            if (data.count === 0) return null;
+            const style = CHARGE_TYPE_STYLES[chargeType];
+            return (
+              <div key={chargeType} className={`${style.bgColor} rounded-lg p-3 border border-${style.color}-300`}>
+                <div className="flex items-center gap-1 mb-2">
+                  <span className="text-lg">{style.icon}</span>
+                  <span className={`text-xs font-semibold ${style.textColor}`}>{style.label}</span>
+                </div>
+                <div className="text-lg font-bold text-slate-900">{formatCurrency(data.total)}</div>
+                <div className="text-xs text-slate-600">{data.count} item{data.count !== 1 ? 's' : ''}</div>
+                {data.partCost > 0 && (
+                  <div className="text-xs text-blue-600 mt-1">Parts: {formatCurrency(data.partCost)}</div>
+                )}
+                {data.laborCost > 0 && (
+                  <div className="text-xs text-green-600">Labor: {formatCurrency(data.laborCost)}</div>
+                )}
+              </div>
+            );
+          })}
         </div>
       </div>
 
@@ -265,9 +392,10 @@ const EnhancedComparisonTable: React.FC<{
               <thead className="text-xs text-slate-700 uppercase bg-slate-100 sticky top-0">
                 <tr>
                   <th className="px-4 py-3 text-left">Description</th>
-                  <th className="px-4 py-3 text-right">Original Price</th>
-                  <th className="px-4 py-3 text-right">Price Change</th>
-                  <th className="px-4 py-3 text-right">New Price</th>
+                  <th className="px-4 py-3 text-center">Type</th>
+                  <th className="px-4 py-3 text-right">Part Cost</th>
+                  <th className="px-4 py-3 text-right">Labor Cost</th>
+                  <th className="px-4 py-3 text-right">Total</th>
                   <th className="px-4 py-3 text-center">Status</th>
                 </tr>
               </thead>
@@ -308,17 +436,25 @@ const EnhancedComparisonTable: React.FC<{
                       <td className="px-4 py-3 font-medium text-slate-900">
                         {item.description}
                       </td>
-                      <td className="px-4 py-3 text-right">
-                        {comparison?.type === 'new' ? '-' : formatCurrency(originalTotal)}
-                      </td>
-                      <td className="px-4 py-3 text-right">
-                        {totalVariance !== 0 ? (
-                          <span className={totalVariance > 0 ? 'text-red-600 font-semibold' : 'text-green-600 font-semibold'}>
-                            {totalVariance > 0 ? '+' : ''}{formatCurrency(totalVariance)}
-                          </span>
+                      <td className="px-4 py-3 text-center">
+                        {comparison?.classification ? (
+                          <ChargeTypeBadge
+                            type={comparison.classification.chargeType}
+                            confidence={comparison.classification.confidence}
+                          />
                         ) : (
-                          <span className="text-slate-400">-</span>
+                          <span className="text-xs text-slate-400">-</span>
                         )}
+                      </td>
+                      <td className="px-4 py-3 text-right text-blue-600">
+                        {comparison?.classification?.costBreakdown?.partCost
+                          ? formatCurrency(comparison.classification.costBreakdown.partCost)
+                          : '-'}
+                      </td>
+                      <td className="px-4 py-3 text-right text-green-600 font-semibold">
+                        {comparison?.classification?.costBreakdown?.laborCost
+                          ? formatCurrency(comparison.classification.costBreakdown.laborCost)
+                          : '-'}
                       </td>
                       <td className="px-4 py-3 text-right font-semibold">
                         {formatCurrency(item.total)}
@@ -427,6 +563,14 @@ const InvoiceViewer: React.FC<InvoiceViewerProps> = ({ originalInvoice, suppleme
         percentageChange = null; // New items don't have percentage change
       }
       
+      // Classify the charge
+      let classification: ChargeClassificationResult | undefined;
+      try {
+        classification = classifyCharge(suppItem);
+      } catch (classifyError) {
+        console.warn('Failed to classify charge:', suppItem.id, classifyError);
+      }
+      
       comparisonMap.set(suppItem.id, {
         id: suppItem.id,
         description: suppItem.description,
@@ -436,7 +580,8 @@ const InvoiceViewer: React.FC<InvoiceViewerProps> = ({ originalInvoice, suppleme
         quantityVariance,
         priceVariance,
         totalVariance,
-        percentageChange
+        percentageChange,
+        classification
       });
     });
     
@@ -447,6 +592,14 @@ const InvoiceViewer: React.FC<InvoiceViewerProps> = ({ originalInvoice, suppleme
       );
       
       if (!exists) {
+        // Classify removed items too
+        let classification: ChargeClassificationResult | undefined;
+        try {
+          classification = classifyCharge(origItem);
+        } catch (classifyError) {
+          console.warn('Failed to classify removed charge:', origItem.id, classifyError);
+        }
+        
         comparisonMap.set(`removed-${origItem.id}`, {
           id: `removed-${origItem.id}`,
           description: origItem.description,
@@ -456,7 +609,8 @@ const InvoiceViewer: React.FC<InvoiceViewerProps> = ({ originalInvoice, suppleme
           quantityVariance: -origItem.quantity,
           priceVariance: -origItem.price,
           totalVariance: -origItem.total,
-          percentageChange: -100
+          percentageChange: -100,
+          classification
         });
       }
     });
@@ -468,6 +622,33 @@ const InvoiceViewer: React.FC<InvoiceViewerProps> = ({ originalInvoice, suppleme
       return [];
     }
   }, [originalInvoice, supplementInvoice]);
+
+  // Calculate summary statistics by charge type
+  const chargeSummary = useMemo(() => {
+    const summary: Record<ChargeType, { count: number; total: number; partCost: number; laborCost: number }> = {
+      [ChargeType.PART_WITH_LABOR]: { count: 0, total: 0, partCost: 0, laborCost: 0 },
+      [ChargeType.LABOR_ONLY]: { count: 0, total: 0, partCost: 0, laborCost: 0 },
+      [ChargeType.MATERIAL]: { count: 0, total: 0, partCost: 0, laborCost: 0 },
+      [ChargeType.SUBLET]: { count: 0, total: 0, partCost: 0, laborCost: 0 },
+      [ChargeType.MISCELLANEOUS]: { count: 0, total: 0, partCost: 0, laborCost: 0 },
+      [ChargeType.UNKNOWN]: { count: 0, total: 0, partCost: 0, laborCost: 0 }
+    };
+    
+    comparisons.forEach(comp => {
+      if (comp.classification) {
+        const chargeType = comp.classification.chargeType;
+        summary[chargeType].count++;
+        summary[chargeType].total += comp.supplement.total;
+        
+        if (comp.classification.costBreakdown) {
+          summary[chargeType].partCost += comp.classification.costBreakdown.partCost;
+          summary[chargeType].laborCost += comp.classification.costBreakdown.laborCost;
+        }
+      }
+    });
+    
+    return summary;
+  }, [comparisons]);
 
   const newItemsCount = comparisons.filter(c => c.type === 'new').length;
   const changedItemsCount = comparisons.filter(c => c.type === 'changed').length;
@@ -583,6 +764,7 @@ const InvoiceViewer: React.FC<InvoiceViewerProps> = ({ originalInvoice, suppleme
           viewMode={viewMode}
           originalInvoice={originalInvoice}
           supplementInvoice={supplementInvoice}
+          chargeSummary={chargeSummary}
         />
       </div>
 

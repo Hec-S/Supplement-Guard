@@ -23,6 +23,28 @@ const invoiceLineItemSchema = {
     total: { type: Type.NUMBER },
     laborHours: { type: Type.NUMBER, nullable: true, description: "Labor hours if applicable" },
     paintHours: { type: Type.NUMBER, nullable: true, description: "Paint hours if applicable" },
+    laborRate: { type: Type.NUMBER, nullable: true, description: "Labor rate per hour (e.g., 120.00 for $120/hr)" },
+    // CRITICAL: Cost breakdown fields for separating part and labor costs
+    partCost: {
+      type: Type.NUMBER,
+      nullable: true,
+      description: "Cost of the physical part ONLY (excluding labor). For parts-with-labor items, this is the part component. For labor-only items, this is 0 or null."
+    },
+    laborCost: {
+      type: Type.NUMBER,
+      nullable: true,
+      description: "Cost of labor to install/repair ONLY (excluding part). Calculate from laborHours × laborRate, or extract from invoice breakdown."
+    },
+    materialCost: {
+      type: Type.NUMBER,
+      nullable: true,
+      description: "Cost of consumable materials (paint, fluids, supplies). Separate from part and labor costs."
+    },
+    costBreakdownValidated: {
+      type: Type.BOOLEAN,
+      nullable: true,
+      description: "True if partCost + laborCost + materialCost = total (within $0.01). False if estimated or cannot validate."
+    },
     isNew: { type: Type.BOOLEAN, nullable: true, description: "True if this item only exists in the supplement invoice." },
     isChanged: { type: Type.BOOLEAN, nullable: true, description: "True if quantity or price changed from the original." },
     isRemoved: { type: Type.BOOLEAN, nullable: true, description: "True if this item was in original but not in supplement." },
@@ -138,8 +160,7 @@ const claimDataSchema = {
     id: { type: Type.STRING, description: "Generate a unique claim ID, e.g., CLM-2024-XXXXXX" },
     claimNumber: {
       type: Type.STRING,
-      nullable: true,
-      description: "The actual Claim # from the document, typically found in the top right of the first page"
+      description: "The actual Claim # from the document, typically found in the top right of the first page (REQUIRED - must always be extracted)"
     },
     vehicleInfo: {
       type: Type.OBJECT,
@@ -233,6 +254,20 @@ const validateClaimData = (data: any): data is ClaimData => {
         }
         if (typeof item.total !== 'number') {
           throw new Error(`Line item ${index} is missing a valid 'total' field.`);
+        }
+        
+        // Validate cost breakdown if present
+        if (item.partCost !== undefined || item.laborCost !== undefined || item.materialCost !== undefined) {
+          const partCost = item.partCost || 0;
+          const laborCost = item.laborCost || 0;
+          const materialCost = item.materialCost || 0;
+          const sum = partCost + laborCost + materialCost;
+          const variance = Math.abs(item.total - sum);
+          
+          // Warn if variance is significant (more than $0.10)
+          if (variance > 0.10) {
+            console.warn(`Line item ${index} (${item.description}): Cost breakdown variance of $${variance.toFixed(2)}. Total: $${item.total}, Sum: $${sum.toFixed(2)}`);
+          }
         }
       });
     }
@@ -360,6 +395,217 @@ When you see codes like S01, S02, S03, S04, S05 in the operation column:
 - Major Overlap = Negative time to prevent double-charging when operations overlap
 - Minor Overlap = Small negative time adjustment for shared work
 - Example: If removing bumper is included in another operation, overlap prevents charging twice
+═══════════════════════════════════════════════════════════════════════════════
+🔧 CRITICAL: SEPARATING PART COSTS FROM LABOR COSTS 🔧
+═══════════════════════════════════════════════════════════════════════════════
+
+**YOUR MOST IMPORTANT TASK: For EVERY line item, you MUST separate the total cost into:**
+1. **partCost** - Cost of the physical part/component (if applicable)
+2. **laborCost** - Cost of labor to install/repair (if applicable)
+3. **materialCost** - Cost of consumable materials like paint, fluids (if applicable)
+
+**VISUAL LAYOUT PATTERNS TO RECOGNIZE:**
+
+Auto repair invoices show costs in these common formats:
+
+**FORMAT 1: Separate Part and Labor Lines (MOST COMMON)**
+┌────────────────────────────────────────────────────────────┐
+│ Line  Operation  Description           Qty  Price   Total  │
+│ 1     Part      Bumper Cover 3CN807421  1   $298.44 $298.44│ ← PART COST
+│ 2     Repl      Replace Bumper Cover   2.5h $120/hr $300.00│ ← LABOR COST
+└────────────────────────────────────────────────────────────┘
+**EXTRACTION:**
+- Line 1: partCost: $298.44, laborCost: $0, total: $298.44
+- Line 2: partCost: $0, laborCost: $300.00, total: $300.00
+
+**FORMAT 2: Combined Line with Hours Column**
+┌────────────────────────────────────────────────────────────────┐
+│ Line  Operation  Description        Hours  Rate   Price  Total │
+│ 1     Repl      Bumper Cover        2.5h  $120   $298   $598  │
+│                 Part: 3CN807421                                │
+└────────────────────────────────────────────────────────────────┘
+**EXTRACTION:**
+- Hours × Rate = Labor Cost: 2.5 × $120 = $300
+- Price = Part Cost: $298
+- Total = Part + Labor: $598
+- Result: partCost: $298, laborCost: $300, total: $598
+
+**FORMAT 3: Itemized with Part Number**
+┌────────────────────────────────────────────────────────────┐
+│ Repl Rear Bumper Cover                                     │
+│   Part #3CN807421              $298.44                     │ ← PART
+│   Labor: 2.5 hrs @ $120/hr     $300.00                     │ ← LABOR
+│   Total:                       $598.44                     │
+└────────────────────────────────────────────────────────────┘
+**EXTRACTION:**
+- partCost: $298.44, laborCost: $300.00, total: $598.44
+
+**FORMAT 4: Single Line with Embedded Hours**
+┌────────────────────────────────────────────────────────────┐
+│ Repl Bumper Cover 3CN807421  2.5M  $598.44                │
+└────────────────────────────────────────────────────────────┘
+**EXTRACTION:**
+- "2.5M" means 2.5 hours Mechanical labor
+- Assume standard rate: $120/hr
+- laborCost: 2.5 × $120 = $300
+- partCost: $598.44 - $300 = $298.44
+- Result: partCost: $298.44, laborCost: $300, total: $598.44
+
+**EXTRACTION RULES BY OPERATION CODE:**
+
+1. **"Repl" or "R&R" (Replace/Remove & Replace):**
+   - ALWAYS has BOTH part cost AND labor cost
+   - Look for part number → that line is the PART COST
+   - Look for labor hours → calculate laborCost = hours × rate
+   - If combined: estimate 60% part, 40% labor as fallback
+   - Example: "Repl Bumper" with $600 total, 2.5h @ $120/hr
+     → laborCost: $300, partCost: $300
+
+2. **"R&I" (Remove & Install):**
+   - LABOR ONLY (no new part, reinstalling same part)
+   - partCost: $0 or null
+   - laborCost: total amount
+   - Example: "R&I Door Panel" $150 → laborCost: $150, partCost: $0
+
+3. **"Refn" or "Blnd" (Refinish/Blend):**
+   - LABOR for paint work
+   - Check if line also mentions "Paint" or "Supplies" → materialCost
+   - partCost: $0 or null
+   - laborCost: hours × rate
+   - Example: "Refn Bumper 1.5P @ $120/hr" → laborCost: $180, partCost: $0
+
+4. **"Subl" (Sublet):**
+   - Work done by outside vendor
+   - Usually labor only, sometimes includes parts
+   - If unclear, put entire amount in laborCost
+   - Example: "Subl Alignment" $89.95 → laborCost: $89.95, partCost: $0
+
+5. **"Part" or "Parts" in description:**
+   - PART COST ONLY
+   - laborCost: $0 or null
+   - Example: "Bumper Cover Part #3CN807421" $298.44 → partCost: $298.44, laborCost: $0
+
+6. **"Labor" in description or just hours:**
+   - LABOR COST ONLY
+   - partCost: $0 or null
+   - Example: "Body Labor 15.4 hrs @ $120/hr" $1,848 → laborCost: $1,848, partCost: $0
+
+7. **Paint/Materials (Refn, Paint Supplies, Fluids):**
+   - If "Supplies" or "Materials" → materialCost
+   - If "Refinish" or "Blend" → laborCost
+   - Example: "Paint Supplies 10.9 hrs @ $42/hr" $457.80 → materialCost: $457.80
+
+**CALCULATION METHODS (in priority order):**
+
+**Method 1: Explicit Breakdown (BEST - use when available)**
+If invoice shows separate lines for part and labor:
+- Extract each cost directly
+- Validate: partCost + laborCost = total
+
+**Method 2: Hours × Rate Calculation (PREFERRED)**
+If you see labor hours and rate:
+- laborCost = laborHours × laborRate
+- partCost = total - laborCost
+- Validate: partCost + laborCost = total
+- Example: 2.5h @ $120/hr, total $598
+  → laborCost: $300, partCost: $298
+
+**Method 3: Standard Labor Rates (if rate not shown)**
+If you see hours but no rate, use these standard rates:
+- Body Labor: $120/hr
+- Paint Labor: $120/hr
+- Mechanical Labor: $150/hr
+- Diagnostic: $140/hr
+- Frame: $130/hr
+- laborCost = hours × standard rate
+- partCost = total - laborCost
+
+**Method 4: Typical Ratios (FALLBACK)**
+If no hours or breakdown visible, use typical ratios:
+- Replacement (Repl): 60% part, 40% labor
+- Overhaul (O/H): 70% part, 30% labor
+- Example: "Repl Bumper" $600, no hours shown
+  → partCost: $360, laborCost: $240
+  → Set costBreakdownValidated: false
+
+**VALIDATION REQUIREMENTS:**
+
+For EVERY line item, you MUST:
+1. ✅ Identify if it contains part, labor, material, or combination
+2. ✅ Extract or calculate individual costs
+3. ✅ Validate: partCost + laborCost + materialCost = total (within $0.01)
+4. ✅ Set costBreakdownValidated = true if validation passes
+5. ✅ Set costBreakdownValidated = false if estimated or validation fails
+
+**VALIDATION EXAMPLES:**
+
+✅ **CORRECT - Validated:**
+- Description: "Repl Bumper Cover, Part #3CN807421"
+- laborHours: 2.5, laborRate: 120
+- Calculation: laborCost = 2.5 × 120 = $300
+- partCost: $298.44 (from part line or total - labor)
+- total: $598.44
+- Validation: $298.44 + $300 = $598.44 ✓
+- costBreakdownValidated: true
+
+✅ **CORRECT - Estimated:**
+- Description: "Repl Bumper Cover"
+- total: $600
+- No hours or breakdown visible
+- Estimation: partCost = $600 × 0.60 = $360
+- Estimation: laborCost = $600 × 0.40 = $240
+- Validation: $360 + $240 = $600 ✓
+- costBreakdownValidated: false (estimated, not from invoice)
+
+❌ **INCORRECT - Don't do this:**
+- Description: "Repl Bumper Cover"
+- total: $598.44
+- partCost: null, laborCost: null ✗
+- **You MUST always provide cost breakdown, even if estimated!**
+
+**SPECIAL CASES:**
+
+1. **Negative Amounts (Overlaps):**
+   - These are labor adjustments to prevent double-charging
+   - Put entire amount in laborCost (will be negative)
+   - partCost: $0
+   - Example: "Major Overlap" -$50 → laborCost: -$50, partCost: $0
+
+2. **Diagnostic/Inspection:**
+   - LABOR ONLY, no parts
+   - Example: "Diagnostic Scan" $89.95 → laborCost: $89.95, partCost: $0
+
+3. **Fluids/Consumables:**
+   - MATERIAL COST, not part or labor
+   - Example: "Brake Fluid" $12.95 → materialCost: $12.95, partCost: $0, laborCost: $0
+
+4. **Sublet with Parts:**
+   - If sublet includes parts (rare), try to separate
+   - If unclear, put in laborCost and note in description
+   - Example: "Subl Glass Replacement" $450 → laborCost: $450, partCost: $0
+
+5. **Paint Operations:**
+   - "Refinish" or "Blend" → laborCost
+   - "Paint Supplies" or "Paint Materials" → materialCost
+   - Example: "Refn Bumper 1.5P @ $120" → laborCost: $180, partCost: $0
+   - Example: "Paint Supplies 1.5P @ $42" → materialCost: $63, partCost: $0, laborCost: $0
+
+**CONFIDENCE INDICATORS:**
+
+Set costBreakdownValidated based on extraction method:
+- ✅ **true**: Explicit breakdown in invoice, or hours × rate calculation that validates
+- ❌ **false**: Estimated using ratios, inferred rates, or cannot validate
+
+**CRITICAL REMINDERS:**
+- 🚨 NEVER leave partCost, laborCost, and materialCost ALL null
+- 🚨 ALWAYS provide cost breakdown, even if estimated
+- 🚨 For labor-only items: partCost = $0, laborCost = total
+- 🚨 For part-only items: partCost = total, laborCost = $0
+- 🚨 Validate your math: sum of costs should equal total
+- 🚨 If you can't determine breakdown, use typical ratios and set costBreakdownValidated: false
+
+═══════════════════════════════════════════════════════════════════════════════
+
 
 **GENERAL LINE ITEM STRUCTURE:**
 Each line item typically contains:
@@ -387,13 +633,14 @@ Each line item typically contains:
 CRITICAL METADATA EXTRACTION (🚨 HIGHEST PRIORITY - EXTRACT FIRST 🚨):
 
 **CLAIM NUMBER:**
-- **LOCATION:** TOP RIGHT corner of the FIRST PAGE, often in a box or highlighted
-- **LOOK FOR:** "Claim #:", "Claim Number:", "Claim No:", or "Claim #" label
-- **FORMAT:** Usually appears as a hyphenated number (e.g., "65-0000545744-01", "12-3456789-01")
-- **VISUAL CUES:** Often highlighted in yellow or in a distinct box
-- **EXAMPLE FROM IMAGE:** "Claim #: 65-0000545744-01"
-- If multiple claim numbers exist, use the one labeled "Claim #" in the top right
-- This is CRITICAL - do not skip this field
+- **LOCATION:** TOP RIGHT corner of the FIRST PAGE, displayed as plain text
+- **LOOK FOR:** The label "Claim #:" followed by the claim number
+- **FORMAT:** Appears as a hyphenated number format: XX-XXXXXXXXXX-XX (e.g., "72-0000527150-02", "65-0000545744-01")
+- **VISUAL APPEARANCE:** Plain black text on white background, aligned to the right side of the page
+- **TYPICAL POSITION:** Located near other header information like "Workfile ID:" in the top right area
+- **EXAMPLE:** "Claim #: 72-0000527150-02"
+- **IMPORTANT:** This is plain text, NOT in a highlighted box or special formatting
+- **CRITICAL:** This field is REQUIRED and must always be extracted - do not skip this field
 
 **VEHICLE INFORMATION:**
 - **LOCATION:** Look for a section labeled "VEHICLE" (all caps, bold header)
@@ -734,6 +981,24 @@ Return ONLY a single, valid JSON object that adheres to the provided schema. Do 
         console.log(`  Supplement ${idx + 1}: ${supp.supplementCode} - $${supp.amount.toFixed(2)}`);
       });
     }
+    
+    // Debug logging for cost breakdown extraction
+    console.log('\n=== COST BREAKDOWN DEBUG ===');
+    const sampleItems = parsedData.supplementInvoice.lineItems.slice(0, 5);
+    sampleItems.forEach((item: any, idx: number) => {
+      console.log(`\nItem ${idx + 1}: ${item.description}`);
+      console.log(`  Total: $${item.total.toFixed(2)}`);
+      console.log(`  Part Cost: ${item.partCost !== undefined && item.partCost !== null ? '$' + item.partCost.toFixed(2) : 'null'}`);
+      console.log(`  Labor Cost: ${item.laborCost !== undefined && item.laborCost !== null ? '$' + item.laborCost.toFixed(2) : 'null'}`);
+      console.log(`  Material Cost: ${item.materialCost !== undefined && item.materialCost !== null ? '$' + item.materialCost.toFixed(2) : 'null'}`);
+      console.log(`  Validated: ${item.costBreakdownValidated !== undefined ? item.costBreakdownValidated : 'not set'}`);
+      
+      if (item.partCost !== undefined || item.laborCost !== undefined || item.materialCost !== undefined) {
+        const sum = (item.partCost || 0) + (item.laborCost || 0) + (item.materialCost || 0);
+        const variance = Math.abs(item.total - sum);
+        console.log(`  Sum: $${sum.toFixed(2)}, Variance: $${variance.toFixed(2)}`);
+      }
+    });
     console.log('===========================');
     
     return parsedData as ClaimData;

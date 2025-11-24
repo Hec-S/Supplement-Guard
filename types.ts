@@ -78,6 +78,12 @@ export interface InvoiceLineItem {
   total: number;
   laborHours?: number; // Labor hours if applicable
   paintHours?: number; // Paint hours if applicable
+  laborRate?: number; // Labor rate per hour (e.g., 120.00 for $120/hr)
+  // Cost breakdown fields - separating part, labor, and material costs
+  partCost?: number; // Cost of the physical part only (excluding labor)
+  laborCost?: number; // Cost of labor to install/repair only (excluding part)
+  materialCost?: number; // Cost of consumable materials (paint, fluids, supplies)
+  costBreakdownValidated?: boolean; // True if partCost + laborCost + materialCost = total
   isNew?: boolean;
   isChanged?: boolean;
   isRemoved?: boolean; // True if item was removed from original
@@ -94,8 +100,245 @@ export interface InvoiceLineItem {
   vehicleSystem?: 'ENGINE' | 'TRANSMISSION' | 'BRAKES' | 'SUSPENSION' | 'ELECTRICAL' | 'BODY' | 'INTERIOR' | 'EXHAUST' | 'COOLING' | 'FUEL' | 'STEERING' | 'HVAC' | 'SAFETY' | 'WHEELS_TIRES' | 'OTHER';
   partCategory?: 'OEM' | 'AFTERMARKET' | 'LABOR' | 'PAINT_MATERIALS' | 'CONSUMABLES' | 'RENTAL' | 'STORAGE' | 'OTHER';
   isOEM?: boolean;
-  laborRate?: number;
 }
+
+// ============================================================================
+// PARTS AND LABOR CHARGE CLASSIFICATION TYPES
+// ============================================================================
+
+/**
+ * Comprehensive charge type classification for auto repair line items.
+ * Distinguishes between parts with labor, labor-only services, materials,
+ * sublet work, and other charge types.
+ */
+export enum ChargeType {
+  /** Physical part with installation labor (e.g., bumper replacement) */
+  PART_WITH_LABOR = 'part_with_labor',
+  
+  /** Labor-only service without parts (e.g., diagnostic, alignment) */
+  LABOR_ONLY = 'labor_only',
+  
+  /** Consumable materials (e.g., paint, fluids, shop supplies) */
+  MATERIAL = 'material',
+  
+  /** Work outsourced to third party (e.g., glass, alignment, ADAS) */
+  SUBLET = 'sublet',
+  
+  /** Miscellaneous charges (e.g., storage, admin fees) */
+  MISCELLANEOUS = 'miscellaneous',
+  
+  /** Cannot be determined from available data */
+  UNKNOWN = 'unknown'
+}
+
+/**
+ * Cost breakdown for parts-with-labor charges.
+ * Separates the part cost from the installation labor cost.
+ */
+export interface CostBreakdown {
+  /** Cost of the physical part/component */
+  partCost: number;
+  
+  /** Cost of labor to install the part */
+  laborCost: number;
+  
+  /** Validation: partCost + laborCost should equal total */
+  isValidated: boolean;
+  
+  /** Variance if validation fails */
+  validationVariance?: number;
+}
+
+/**
+ * Detailed part information for parts-with-labor charges.
+ * Provides comprehensive details about the physical component.
+ */
+export interface PartInfo {
+  /** Part name/description */
+  name: string;
+  
+  /** OEM or aftermarket part number */
+  partNumber?: string;
+  
+  /** Part cost (same as costBreakdown.partCost) */
+  cost: number;
+  
+  /** Part category (OEM, Aftermarket, etc.) */
+  category?: PartCategory;
+  
+  /** Quantity of parts */
+  quantity: number;
+}
+
+/**
+ * Detailed labor information for parts-with-labor and labor-only charges.
+ * Captures labor operation details, hours, and rates.
+ */
+export interface LaborInfo {
+  /** Labor description/operation */
+  description: string;
+  
+  /** Labor operation code (Repl, R&I, etc.) */
+  operationCode?: string;
+  
+  /** Labor cost (same as costBreakdown.laborCost for parts) */
+  cost: number;
+  
+  /** Labor hours */
+  hours?: number;
+  
+  /** Labor rate per hour */
+  rate?: number;
+  
+  /** Labor type (M=Mechanical, S=Structural, etc.) */
+  laborType?: 'M' | 'S' | 'F' | 'E' | 'G' | 'D' | 'P';
+}
+
+/**
+ * Material/consumable details for material charges.
+ * Tracks consumable items like paint, fluids, and supplies.
+ */
+export interface MaterialInfo {
+  /** Material description */
+  description: string;
+  
+  /** Material cost */
+  cost: number;
+  
+  /** Material type (paint, fluids, supplies) */
+  type: 'paint' | 'fluids' | 'supplies' | 'other';
+}
+
+/**
+ * Sublet work details for outsourced services.
+ * Tracks work performed by third-party vendors.
+ */
+export interface SubletInfo {
+  /** Sublet description */
+  description: string;
+  
+  /** Sublet cost */
+  cost: number;
+  
+  /** Vendor/shop performing work */
+  vendor?: string;
+  
+  /** Type of sublet work */
+  type: 'glass' | 'alignment' | 'adas' | 'upholstery' | 'other';
+}
+
+/**
+ * Extended invoice line item with charge classification and cost breakdown.
+ * Maintains backward compatibility with existing InvoiceLineItem interface
+ * while adding comprehensive charge type classification.
+ */
+export interface ClassifiedInvoiceLineItem extends InvoiceLineItem {
+  // === CHARGE CLASSIFICATION ===
+  
+  /** Primary charge type classification */
+  chargeType: ChargeType;
+  
+  /** Confidence level of classification (0.0 - 1.0) */
+  classificationConfidence: number;
+  
+  /** Reasoning for classification decision */
+  classificationReason?: string;
+  
+  // === COST BREAKDOWN ===
+  
+  /** Cost breakdown for parts-with-labor charges */
+  costBreakdown?: CostBreakdown;
+  
+  // === PART INFORMATION (for PART_WITH_LABOR) ===
+  
+  /** Detailed part information */
+  partInfo?: PartInfo;
+  
+  // === LABOR INFORMATION (for PART_WITH_LABOR and LABOR_ONLY) ===
+  
+  /** Detailed labor information */
+  laborInfo?: LaborInfo;
+  
+  // === MATERIAL INFORMATION (for MATERIAL) ===
+  
+  /** Material/consumable details */
+  materialInfo?: MaterialInfo;
+  
+  // === SUBLET INFORMATION (for SUBLET) ===
+  
+  /** Sublet work details */
+  subletInfo?: SubletInfo;
+}
+
+/**
+ * Confidence scoring for charge classification.
+ * Provides detailed breakdown of classification factors.
+ */
+export interface ClassificationConfidence {
+  /** Overall confidence score (0.0 - 1.0) */
+  score: number;
+  
+  /** Factors that influenced classification */
+  factors: {
+    /** Operation code match (e.g., Repl → part_with_labor) */
+    operationCodeMatch?: boolean;
+    
+    /** Part number presence */
+    hasPartNumber?: boolean;
+    
+    /** Labor hours presence */
+    hasLaborHours?: boolean;
+    
+    /** Description keyword matches */
+    descriptionKeywords?: string[];
+    
+    /** Part category match */
+    partCategoryMatch?: boolean;
+  };
+}
+
+/**
+ * Result of charge classification analysis.
+ * Contains the classification decision and supporting information.
+ */
+export interface ChargeClassificationResult {
+  /** Original line item ID */
+  lineItemId: string;
+  
+  /** Classified charge type */
+  chargeType: ChargeType;
+  
+  /** Classification confidence (0.0 - 1.0) */
+  confidence: number;
+  
+  /** Factors that influenced classification */
+  classificationFactors: {
+    /** Operation code match (e.g., Repl → part_with_labor) */
+    operationCodeMatch?: boolean;
+    
+    /** Part number presence */
+    hasPartNumber?: boolean;
+    
+    /** Labor hours presence */
+    hasLaborHours?: boolean;
+    
+    /** Description keyword matches */
+    descriptionKeywords?: string[];
+    
+    /** Part category match */
+    partCategoryMatch?: boolean;
+  };
+  
+  /** Cost breakdown if applicable */
+  costBreakdown?: CostBreakdown;
+  
+  /** Warnings or issues */
+  warnings?: string[];
+}
+
+// ============================================================================
+// END PARTS AND LABOR CHARGE CLASSIFICATION TYPES
+// ============================================================================
 
 // Enhanced Automotive Line Item Interface
 export interface AutomotiveLineItem extends InvoiceLineItem {
@@ -160,7 +403,7 @@ export interface Invoice {
 
 export interface ClaimData {
   id: string;
-  claimNumber?: string;  // Claim # from top right of first page
+  claimNumber: string;  // Claim # from top right of first page (REQUIRED - always present in PDFs)
   vehicleInfo?: {        // Vehicle information from Vehicle section
     year?: string;
     make?: string;

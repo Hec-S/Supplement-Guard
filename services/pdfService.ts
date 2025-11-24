@@ -64,10 +64,8 @@ export const generatePdfReport = (claimData: ClaimData, comparisonAnalysis?: Com
     const headerBoxHeight = claimData.vehicleInfo ? 25 : 15; // Adjust height based on content
     doc.rect(safeZone - 5, currentY - 5, maxContentWidth + 10, headerBoxHeight, 'F');
     
-    // Use actual Claim # if available, otherwise fall back to generated ID
-    const claimText = claimData.claimNumber
-      ? `Claim #: ${claimData.claimNumber}`
-      : `Claim ID: ${claimData.id}`;
+    // Always use the real Claim # from the document
+    const claimText = `Claim #: ${claimData.claimNumber}`;
     
     // Create vehicle text if vehicle info is available
     let vehicleText = '';
