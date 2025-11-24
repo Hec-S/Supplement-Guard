@@ -377,8 +377,8 @@ Please note: Any misrepresentation of repairs, labor, parts, or supplements—in
         doc.text(category, safeZone + 2, currentY + 5);
         currentY += 10;
 
-        // Create table for this category
-        const supplementHeaders = ['Description', 'Original Price', 'Price Change', 'New Price', 'Status'];
+        // Create table for this category with Charge Type column
+        const supplementHeaders = ['Description', 'Original Price', 'Price Change', 'New Price', 'Status', 'Charge Type'];
         const categoryData = categoryItems.map(item => {
           // Find the corresponding original item
           const originalItem = claimData.originalInvoice.lineItems.find(
@@ -393,12 +393,45 @@ Please note: Any misrepresentation of repairs, labor, parts, or supplements—in
           else if (item.isRemoved) status = 'REMOVED';
           else if (item.isChanged) status = 'CHANGED';
           
+          // Determine charge type based on cost breakdown
+          let chargeType = 'Unknown';
+          if (item.partCost !== undefined && item.laborCost !== undefined) {
+            if (item.partCost > 0 && item.laborCost > 0) {
+              chargeType = 'Part + Labor';
+            } else if (item.partCost > 0 && item.laborCost === 0) {
+              chargeType = 'Part Only';
+            } else if (item.partCost === 0 && item.laborCost > 0) {
+              chargeType = 'Labor Only';
+            }
+          } else if (item.materialCost !== undefined && item.materialCost > 0) {
+            chargeType = 'Material';
+          } else {
+            // Fallback: infer from operation code or description
+            const desc = item.description.toLowerCase();
+            const op = item.operation?.toLowerCase() || '';
+            
+            if (op.includes('subl') || desc.includes('sublet')) {
+              chargeType = 'Sublet';
+            } else if (op.includes('repl') || op.includes('r&r')) {
+              chargeType = 'Part + Labor';
+            } else if (op.includes('r&i') || op.includes('refn') || op.includes('blnd')) {
+              chargeType = 'Labor Only';
+            } else if (desc.includes('part') && !desc.includes('labor')) {
+              chargeType = 'Part Only';
+            } else if (desc.includes('labor') || desc.includes('diagnostic')) {
+              chargeType = 'Labor Only';
+            } else if (desc.includes('paint') || desc.includes('supplies') || desc.includes('material')) {
+              chargeType = 'Material';
+            }
+          }
+          
           return [
             item.description,
             originalItem ? formatCurrency(originalTotal) : '-',
             priceChange !== 0 ? formatCurrency(priceChange) : '-',
             item.isRemoved ? '-' : formatCurrency(item.total),
-            status
+            status,
+            chargeType
           ];
         });
 
@@ -439,8 +472,8 @@ Please note: Any misrepresentation of repairs, labor, parts, or supplements—in
         return getStatusPriority(a) - getStatusPriority(b);
       });
 
-      // Create table for supplement invoice with color coding
-      const supplementHeaders = ['Description', 'Original Price', 'Price Change', 'New Price', 'Status'];
+      // Create table for supplement invoice with color coding and Charge Type
+      const supplementHeaders = ['Description', 'Original Price', 'Price Change', 'New Price', 'Status', 'Charge Type'];
       const supplementData = sortedSupplementItems.map(item => {
         // Find the corresponding original item to get original price
         const originalItem = claimData.originalInvoice.lineItems.find(
@@ -450,12 +483,45 @@ Please note: Any misrepresentation of repairs, labor, parts, or supplements—in
         const originalTotal = originalItem ? originalItem.total : 0;
         const priceChange = item.total - originalTotal;
         
+        // Determine charge type based on cost breakdown
+        let chargeType = 'Unknown';
+        if (item.partCost !== undefined && item.laborCost !== undefined) {
+          if (item.partCost > 0 && item.laborCost > 0) {
+            chargeType = 'Part + Labor';
+          } else if (item.partCost > 0 && item.laborCost === 0) {
+            chargeType = 'Part Only';
+          } else if (item.partCost === 0 && item.laborCost > 0) {
+            chargeType = 'Labor Only';
+          }
+        } else if (item.materialCost !== undefined && item.materialCost > 0) {
+          chargeType = 'Material';
+        } else {
+          // Fallback: infer from operation code or description
+          const desc = item.description.toLowerCase();
+          const op = item.operation?.toLowerCase() || '';
+          
+          if (op.includes('subl') || desc.includes('sublet')) {
+            chargeType = 'Sublet';
+          } else if (op.includes('repl') || op.includes('r&r')) {
+            chargeType = 'Part + Labor';
+          } else if (op.includes('r&i') || op.includes('refn') || op.includes('blnd')) {
+            chargeType = 'Labor Only';
+          } else if (desc.includes('part') && !desc.includes('labor')) {
+            chargeType = 'Part Only';
+          } else if (desc.includes('labor') || desc.includes('diagnostic')) {
+            chargeType = 'Labor Only';
+          } else if (desc.includes('paint') || desc.includes('supplies') || desc.includes('material')) {
+            chargeType = 'Material';
+          }
+        }
+        
         return [
           item.description,
           originalItem ? formatCurrency(originalTotal) : '-',
           priceChange !== 0 ? formatCurrency(priceChange) : '-',
           formatCurrency(item.total),
-          item.isNew ? 'NEW' : item.isChanged ? 'CHANGED' : 'SAME'
+          item.isNew ? 'NEW' : item.isChanged ? 'CHANGED' : 'SAME',
+          chargeType
         ];
       });
       
@@ -910,12 +976,12 @@ Please note: Any misrepresentation of repairs, labor, parts, or supplements—in
           doc.rect(x, tableY, width, maxRowHeight, 'F');
         }
         
-        // Draw cell content with color coding for status column
+        // Draw cell content with color coding for status and charge type columns
         wrappedCells.forEach((cellLines, colIndex) => {
           const cellX = x + colIndex * colWidth;
           
-          // Apply color coding for status column (last column) and price change column
-          if (colIndex === headers.length - 1 && rowIndex < lineItems.length) {
+          // Apply color coding for status column (second to last) and charge type column (last)
+          if (colIndex === headers.length - 2 && rowIndex < lineItems.length) {
             // Status column
             const item = lineItems[rowIndex];
             if (item.isNew) {
@@ -924,6 +990,23 @@ Please note: Any misrepresentation of repairs, labor, parts, or supplements—in
               doc.setTextColor(255, 140, 0); // Orange for CHANGED
             } else {
               doc.setTextColor(51, 51, 51); // Default color for SAME
+            }
+          } else if (colIndex === headers.length - 1 && rowIndex < lineItems.length) {
+            // Charge Type column - color coded
+            const chargeType = row[colIndex];
+            doc.setFont(undefined, 'bold');
+            if (chargeType === 'Part + Labor') {
+              doc.setTextColor(147, 51, 234); // Purple for Part + Labor
+            } else if (chargeType === 'Part Only') {
+              doc.setTextColor(59, 130, 246); // Blue for Part Only
+            } else if (chargeType === 'Labor Only') {
+              doc.setTextColor(34, 197, 94); // Green for Labor Only
+            } else if (chargeType === 'Material') {
+              doc.setTextColor(251, 146, 60); // Orange for Material
+            } else if (chargeType === 'Sublet') {
+              doc.setTextColor(168, 85, 247); // Light purple for Sublet
+            } else {
+              doc.setTextColor(107, 114, 128); // Gray for Unknown
             }
           } else if (colIndex === 2 && rowIndex < lineItems.length) {
             // Price change column - color based on increase/decrease
