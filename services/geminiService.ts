@@ -60,6 +60,11 @@ const invoiceLineItemSchema = {
       nullable: true,
       description: "Type of change: NEW, REMOVED, QUANTITY_CHANGED, PRICE_CHANGED, BOTH_CHANGED, UNCHANGED"
     },
+    differenceType: {
+      type: Type.STRING,
+      nullable: true,
+      description: "Specific difference type for comparison table: 'Added Labor', 'Added Part', 'Changed Part Type', 'Increased Price', 'Decreased Price', 'Increased Quantity', 'Decreased Quantity', 'Removed Operation', 'Modified Labor Hours', 'Changed Part Number', etc."
+    },
     // Enhanced automotive fields
     partNumber: { type: Type.STRING, nullable: true, description: "OEM or aftermarket part number if identifiable" },
     vehicleSystem: {
@@ -324,16 +329,26 @@ export const analyzeClaimPackage = async (
   const originalParts = await Promise.all(originalFiles.map(fileToGenerativePart));
   const supplementParts = await Promise.all(supplementFiles.map(fileToGenerativePart));
 
-  const prompt = `You are a meticulous document analyst with exceptional Optical Character Recognition (OCR) capabilities specializing in automotive repair invoices. Your primary goal is to accurately extract and compare LINE ITEMS WITH THEIR CATEGORIES between original and supplement claim packages.
+  const prompt = `## 🎯 CCC ESTIMATE ANALYSIS SPECIALIST
 
-Your task is to:
-1. Extract CLAIM NUMBER and VEHICLE INFORMATION from the documents
-2. Extract all line items from both documents WITH THEIR CATEGORIES
-3. **EXTRACT THE "TOTALS SUMMARY" TABLE** (CRITICAL - see section 7 below)
-4. Compare line items to identify what changed
-5. Track additions, removals, and modifications
-6. Extract the COMPLETE workfile total from supplement (estimate + all supplements)
-7. Return structured data showing these changes
+You are a specialized insurance/auto repair analyst with exceptional Optical Character Recognition (OCR) capabilities. You analyze "CCC Estimate of Record" and "Supplement of Record Summary" documents with precision.
+
+**PRIMARY GOALS (MUST-HAVE ITEMS):**
+1. **Extract final total costs** for both Estimate and Supplement documents
+2. **Generate detailed comparison** showing ONLY line items with differences
+3. **Identify difference types** for each changed item (Added Labor, Changed Part Type, Increased Price, Removed Operation, etc.)
+4. **Extract complete metadata** (Claim #, Vehicle Info, Workfile Total)
+5. **Separate part costs from labor costs** for accurate analysis
+
+**YOUR ANALYSIS TASKS:**
+1. Extract CLAIM NUMBER and VEHICLE INFORMATION from documents
+2. Extract all line items WITH THEIR CATEGORIES from both documents
+3. **EXTRACT "TOTALS SUMMARY" TABLE** (CRITICAL - see section 7)
+4. **EXTRACT "CUMULATIVE EFFECTS" TABLE** (CRITICAL - see section 6b)
+5. Compare line items to identify what changed
+6. Track additions, removals, and modifications with specific difference types
+7. Extract COMPLETE workfile total (estimate + all supplements)
+8. Return structured JSON with comprehensive change tracking
 
 ═══════════════════════════════════════════════════════════════════════════════
 🔧 AUTO-DAMAGE ESTIMATE TERMINOLOGY REFERENCE 🔧
@@ -768,6 +783,21 @@ Follow these instructions precisely:
    
    **CRITICAL: Compare LINE ITEMS between documents, preserving category structure**
    
+   **COMPARISON TABLE FOCUS:**
+   - Generate comparison data for ONLY items with ANY difference
+   - For each changed item, identify the specific **Difference Type**:
+     * "Added Labor" - New labor operation added
+     * "Added Part" - New part added
+     * "Changed Part Type" - Part specification changed (OEM to Aftermarket, etc.)
+     * "Increased Price" - Price went up
+     * "Decreased Price" - Price went down
+     * "Increased Quantity" - Quantity increased
+     * "Decreased Quantity" - Quantity decreased
+     * "Removed Operation" - Operation removed from estimate
+     * "Modified Labor Hours" - Labor time changed
+     * "Changed Part Number" - Different part number used
+   
+   **MATCHING RULES:**
    - Match items between original and supplement based on BOTH category AND description
    - Items should be compared within the same category when possible
    - Use fuzzy matching for similar descriptions (e.g., "Front Bumper" vs "Frnt Bumper")
@@ -776,22 +806,28 @@ Follow these instructions precisely:
      a) **NEW ITEMS** (isNew: true):
         - Items that appear ONLY in the supplement
         - Not present in the original at all
+        - Difference Type: "Added Labor" or "Added Part" based on item type
      
      b) **REMOVED ITEMS** (isRemoved: true):
         - Items that were in the original
         - But are NOT in the supplement
+        - Difference Type: "Removed Operation"
      
      c) **CHANGED ITEMS** (isChanged: true):
         - Items in both documents but with different:
-          • Quantity
-          • Price
-          • Total
+          • Quantity → Difference Type: "Increased Quantity" or "Decreased Quantity"
+          • Price → Difference Type: "Increased Price" or "Decreased Price"
+          • Part Number → Difference Type: "Changed Part Number"
+          • Labor Hours → Difference Type: "Modified Labor Hours"
+          • Part Category → Difference Type: "Changed Part Type"
         - Store original values for comparison
         - Calculate the differences
+        - Specify the exact nature of the change
      
      d) **UNCHANGED ITEMS**:
         - Items identical in both documents
         - Same quantity, price, and total
+        - These should NOT be included in the comparison table
 
 4. **Change Tracking Details:**
    
@@ -973,31 +1009,71 @@ Follow these instructions precisely:
 
 9. **Invoice Summary:**
    
-   Write a clear, detailed summary focusing on:
+   Write a clear, detailed summary in this format:
+   
+   **FINAL TOTALS:**
+   - Original Estimate Total: $X,XXX.XX
+   - Supplement Total: $X,XXX.XX
+   - Workfile Total (Estimate + All Supplements): $X,XXX.XX
+   - Net Change: $X,XXX.XX (XX.X% increase/decrease)
+   
+   **COMPARISON TABLE - ITEMS WITH DIFFERENCES:**
+   For each changed item, provide:
+   - Part/Operation name
+   - Estimate Value (from original)
+   - Supplement Value (from supplement)
+   - Difference Type (Added Labor, Changed Part Type, Increased Price, etc.)
+   
+   **SUMMARY BY CATEGORY:**
    - What specific items were added (organized by category)
    - What specific items were removed (organized by category)
    - What items had price or quantity changes (organized by category)
    - The overall impact on the total cost
-   - **IMPORTANT:** Mention the Workfile Total or NET COST OF REPAIRS as the complete total
+   
+   **IMPORTANT NOTES:**
+   - Mention the Workfile Total or NET COST OF REPAIRS as the complete total
    - Clarify that this total includes the original estimate plus all supplements
-   - Organize the summary by categories for clarity
    - Use clear, simple language
-   - Focus on facts, not fraud detection
+   - Focus on facts and specific differences, not fraud detection
+   - Emphasize the nature of each change (type of difference)
 
-IMPORTANT NOTES:
-- **ALWAYS extract Claim # and Vehicle information FIRST** - these are critical for identification
-- This is NOT a fraud detection analysis
-- Focus ONLY on documenting what changed between documents
-- **CRITICAL:** Every line item MUST have a category assigned (use "UNCATEGORIZED" if no category is visible)
-- Preserve the hierarchical structure of categories and their line items
+═══════════════════════════════════════════════════════════════════════════════
+📋 CRITICAL REQUIREMENTS SUMMARY
+═══════════════════════════════════════════════════════════════════════════════
+
+**EXTRACTION PRIORITIES (IN ORDER):**
+1. ✅ **Claim # and Vehicle Info** - ALWAYS extract first (REQUIRED)
+2. ✅ **Final Total Costs** - Extract for both Estimate and Supplement
+3. ✅ **TOTALS SUMMARY Table** - Complete cost breakdown by category
+4. ✅ **CUMULATIVE EFFECTS Table** - Estimate + all supplements (S01-S05)
+5. ✅ **Line Items with Categories** - All items with their category assignments
+6. ✅ **Part/Labor Cost Separation** - Break down every line item
+7. ✅ **Change Tracking with Difference Types** - Identify what changed and HOW
+
+**COMPARISON TABLE FOCUS:**
+- Include ONLY items with differences (exclude unchanged items)
+- For each changed item, specify the **differenceType** field:
+  * "Added Labor", "Added Part", "Changed Part Type"
+  * "Increased Price", "Decreased Price"
+  * "Increased Quantity", "Decreased Quantity"
+  * "Removed Operation", "Modified Labor Hours", "Changed Part Number"
+
+**DATA QUALITY REQUIREMENTS:**
+- Every line item MUST have a category (use "UNCATEGORIZED" if none visible)
+- Preserve hierarchical structure of categories and line items
 - Be precise in matching line items within their categories
-- Track all changes accurately
-- Set fraudScore to 0 and fraudReasons to empty array (not used)
-- **CRITICAL:** The "Workfile Total" or "NET COST OF REPAIRS" in supplement files represents the COMPLETE claim total (original estimate + all supplements)
-- Always extract and report this complete workfile total for accurate financial reporting
-- **CRITICAL REQUIREMENT:** Extract the TOTALS SUMMARY table if present in the invoice - this provides the authoritative cost breakdown by category
-- **CRITICAL REQUIREMENT:** Extract the CUMULATIVE EFFECTS OF SUPPLEMENT(S) table if present in supplement invoices - this shows the breakdown of estimate + each supplement (S01, S02, S03, S04, S05) and is essential for understanding how many supplements exist and their individual amounts
+- Track all changes with specific difference types
+- Validate cost breakdowns: partCost + laborCost + materialCost = total
 
+**IMPORTANT NOTES:**
+- This is NOT a fraud detection analysis - focus on factual comparison
+- Set fraudScore to 0 and fraudReasons to empty array (not used)
+- The "Workfile Total" or "NET COST OF REPAIRS" represents the COMPLETE claim total (estimate + all supplements)
+- Always extract and report this complete workfile total for accurate financial reporting
+- Extract TOTALS SUMMARY table if present - provides authoritative cost breakdown
+- Extract CUMULATIVE EFFECTS table if present - shows estimate + each supplement breakdown
+
+**OUTPUT FORMAT:**
 Return ONLY a single, valid JSON object that adheres to the provided schema. Do not include any other text or markdown formatting.`;
 
   try {

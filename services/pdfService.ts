@@ -118,7 +118,7 @@ export const generatePdfReport = (claimData: ClaimData, comparisonAnalysis?: Com
     currentY += 15;
 
     // Changes Overview Section
-    checkPageSpace(60);
+    checkPageSpace(80);
     doc.setTextColor(51, 51, 51);
     addSafeText('Changes Overview', safeZone, maxContentWidth, 16, 'bold');
     currentY += 5;
@@ -129,22 +129,99 @@ export const generatePdfReport = (claimData: ClaimData, comparisonAnalysis?: Com
     const totalDifference = supplementTotal - originalTotal;
     const percentChange = ((totalDifference / originalTotal) * 100).toFixed(2);
     
-    // Count new and changed items
-    const newItems = claimData.supplementInvoice.lineItems.filter(item => item.isNew).length;
-    const changedItems = claimData.supplementInvoice.lineItems.filter(item => item.isChanged).length;
-    const unchangedItems = claimData.supplementInvoice.lineItems.filter(item => !item.isNew && !item.isChanged).length;
+    // Calculate Parts totals (items with partCost > 0 or part-related categories)
+    const calculatePartsCost = (invoice: any) => {
+      return invoice.lineItems.reduce((sum: number, item: any) => {
+        // Use partCost if available
+        if (item.partCost !== undefined && item.partCost > 0) {
+          return sum + item.partCost;
+        }
+        // Otherwise check category or description for parts
+        const desc = item.description?.toLowerCase() || '';
+        const cat = item.category?.toLowerCase() || '';
+        const op = item.operation?.toLowerCase() || '';
+        
+        if (cat.includes('part') || cat.includes('bumper') || cat.includes('panel') ||
+            cat.includes('fender') || cat.includes('door') || cat.includes('hood') ||
+            (op.includes('repl') && !op.includes('r&i') && !desc.includes('labor only'))) {
+          return sum + item.total;
+        }
+        return sum;
+      }, 0);
+    };
+    
+    // Calculate Labor totals (all labor costs combined)
+    const calculateLaborCost = (invoice: any) => {
+      return invoice.lineItems.reduce((sum: number, item: any) => {
+        // Use laborCost if available
+        if (item.laborCost !== undefined && item.laborCost > 0) {
+          return sum + item.laborCost;
+        }
+        // Otherwise check category or description for labor
+        const desc = item.description?.toLowerCase() || '';
+        const cat = item.category?.toLowerCase() || '';
+        const op = item.operation?.toLowerCase() || '';
+        
+        if (cat.includes('labor') || cat.includes('body') || cat.includes('paint') ||
+            cat.includes('mechanical') || desc.includes('labor') ||
+            op.includes('r&i') || op.includes('refn') || op.includes('blnd')) {
+          return sum + item.total;
+        }
+        return sum;
+      }, 0);
+    };
+    
+    // Calculate Labor Rate (weighted average from line items with labor hours)
+    const calculateLaborRate = (invoice: any) => {
+      let totalLaborCost = 0;
+      let totalLaborHours = 0;
+      
+      invoice.lineItems.forEach((item: any) => {
+        if (item.laborHours && item.laborHours > 0) {
+          const laborCost = item.laborCost || item.total;
+          totalLaborCost += laborCost;
+          totalLaborHours += item.laborHours;
+        } else if (item.laborRate && item.laborRate > 0) {
+          // If we have a labor rate but no hours, use it directly
+          return item.laborRate;
+        }
+      });
+      
+      return totalLaborHours > 0 ? totalLaborCost / totalLaborHours : 0;
+    };
+    
+    const originalPartsCost = calculatePartsCost(claimData.originalInvoice);
+    const supplementPartsCost = calculatePartsCost(claimData.supplementInvoice);
+    const partsChange = supplementPartsCost - originalPartsCost;
+    const partsChangePercent = originalPartsCost > 0 ? ((partsChange / originalPartsCost) * 100).toFixed(2) : 'N/A';
+    
+    const originalLaborCost = calculateLaborCost(claimData.originalInvoice);
+    const supplementLaborCost = calculateLaborCost(claimData.supplementInvoice);
+    const laborChange = supplementLaborCost - originalLaborCost;
+    const laborChangePercent = originalLaborCost > 0 ? ((laborChange / originalLaborCost) * 100).toFixed(2) : 'N/A';
+    
+    const originalLaborRate = calculateLaborRate(claimData.originalInvoice);
+    const supplementLaborRate = calculateLaborRate(claimData.supplementInvoice);
+    const laborRateChange = supplementLaborRate - originalLaborRate;
+    const laborRateChangePercent = originalLaborRate > 0 ? ((laborRateChange / originalLaborRate) * 100).toFixed(2) : 'N/A';
     
     const changePoints = [
       `• Total amount changed from ${formatCurrency(originalTotal)} to ${formatCurrency(supplementTotal)}`,
       `• Overall difference: ${formatCurrency(Math.abs(totalDifference))} (${percentChange}%)`,
-      `• ${newItems} new item${newItems !== 1 ? 's' : ''} added to supplement`,
-      `• ${changedItems} item${changedItems !== 1 ? 's' : ''} modified from original`,
-      `• ${unchangedItems} item${unchangedItems !== 1 ? 's' : ''} remained unchanged`
+      '',
+      `• Parts: ${formatCurrency(originalPartsCost)} to ${formatCurrency(supplementPartsCost)} (${partsChange >= 0 ? '+' : ''}${formatCurrency(partsChange)}, ${partsChangePercent !== 'N/A' ? partsChangePercent + '%' : partsChangePercent})`,
+      `• Labor: ${formatCurrency(originalLaborCost)} to ${formatCurrency(supplementLaborCost)} (${laborChange >= 0 ? '+' : ''}${formatCurrency(laborChange)}, ${laborChangePercent !== 'N/A' ? laborChangePercent + '%' : laborChangePercent})`,
+      '',
+      `• Labor Rate: ${originalLaborRate > 0 ? formatCurrency(originalLaborRate) + '/hr' : 'N/A'} to ${supplementLaborRate > 0 ? formatCurrency(supplementLaborRate) + '/hr' : 'N/A'}${laborRateChange !== 0 && originalLaborRate > 0 ? ` (${laborRateChange >= 0 ? '+' : ''}${formatCurrency(laborRateChange)}/hr, ${laborRateChangePercent !== 'N/A' ? laborRateChangePercent + '%' : laborRateChangePercent})` : ''}`
     ];
     
     changePoints.forEach(point => {
-      addSafeText(point, safeZone, maxContentWidth, 12, 'normal');
-      currentY += 3;
+      if (point === '') {
+        currentY += 2; // Add spacing for empty lines
+      } else {
+        addSafeText(point, safeZone, maxContentWidth, 12, 'normal');
+        currentY += 3;
+      }
     });
 
     currentY += 10;

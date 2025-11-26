@@ -95,6 +95,7 @@ export interface InvoiceLineItem {
   priceChange?: number;
   totalChange?: number;
   changeType?: 'NEW' | 'REMOVED' | 'QUANTITY_CHANGED' | 'PRICE_CHANGED' | 'BOTH_CHANGED' | 'UNCHANGED';
+  differenceType?: string; // Specific difference type: 'Added Labor', 'Changed Part Type', 'Increased Price', etc.
   // Enhanced automotive fields
   partNumber?: string;
   vehicleSystem?: 'ENGINE' | 'TRANSMISSION' | 'BRAKES' | 'SUSPENSION' | 'ELECTRICAL' | 'BODY' | 'INTERIOR' | 'EXHAUST' | 'COOLING' | 'FUEL' | 'STEERING' | 'HVAC' | 'SAFETY' | 'WHEELS_TIRES' | 'OTHER';
