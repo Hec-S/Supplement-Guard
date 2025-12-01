@@ -192,36 +192,22 @@ export const generatePdfReport = (claimData: ClaimData, comparisonAnalysis?: Com
     
     const originalPartsCost = calculatePartsCost(claimData.originalInvoice);
     const supplementPartsCost = calculatePartsCost(claimData.supplementInvoice);
-    const partsChange = supplementPartsCost - originalPartsCost;
-    const partsChangePercent = originalPartsCost > 0 ? ((partsChange / originalPartsCost) * 100).toFixed(2) : 'N/A';
+    const partsAdded = supplementPartsCost - originalPartsCost;
     
     const originalLaborCost = calculateLaborCost(claimData.originalInvoice);
     const supplementLaborCost = calculateLaborCost(claimData.supplementInvoice);
-    const laborChange = supplementLaborCost - originalLaborCost;
-    const laborChangePercent = originalLaborCost > 0 ? ((laborChange / originalLaborCost) * 100).toFixed(2) : 'N/A';
+    const laborAdded = supplementLaborCost - originalLaborCost;
     
-    const originalLaborRate = calculateLaborRate(claimData.originalInvoice);
-    const supplementLaborRate = calculateLaborRate(claimData.supplementInvoice);
-    const laborRateChange = supplementLaborRate - originalLaborRate;
-    const laborRateChangePercent = originalLaborRate > 0 ? ((laborRateChange / originalLaborRate) * 100).toFixed(2) : 'N/A';
-    
+    // Format: "- Original X: $original ADDED $added = TOTAL $total"
     const changePoints = [
-      `• Total amount changed from ${formatCurrency(originalTotal)} to ${formatCurrency(supplementTotal)}`,
-      `• Overall difference: ${formatCurrency(Math.abs(totalDifference))} (${percentChange}%)`,
-      '',
-      `• Parts: ${formatCurrency(originalPartsCost)} to ${formatCurrency(supplementPartsCost)} (${partsChange >= 0 ? '+' : ''}${formatCurrency(partsChange)}, ${partsChangePercent !== 'N/A' ? partsChangePercent + '%' : partsChangePercent})`,
-      `• Labor: ${formatCurrency(originalLaborCost)} to ${formatCurrency(supplementLaborCost)} (${laborChange >= 0 ? '+' : ''}${formatCurrency(laborChange)}, ${laborChangePercent !== 'N/A' ? laborChangePercent + '%' : laborChangePercent})`,
-      '',
-      `• Labor Rate: ${originalLaborRate > 0 ? formatCurrency(originalLaborRate) + '/hr' : 'N/A'} to ${supplementLaborRate > 0 ? formatCurrency(supplementLaborRate) + '/hr' : 'N/A'}${laborRateChange !== 0 && originalLaborRate > 0 ? ` (${laborRateChange >= 0 ? '+' : ''}${formatCurrency(laborRateChange)}/hr, ${laborRateChangePercent !== 'N/A' ? laborRateChangePercent + '%' : laborRateChangePercent})` : ''}`
+      `- Original Estimate:    ${formatCurrency(originalTotal)} ADDED ${formatCurrency(totalDifference)} = TOTAL ${formatCurrency(supplementTotal)}`,
+      `- Original Parts:       ${formatCurrency(originalPartsCost)} ADDED ${formatCurrency(partsAdded)} = TOTAL ${formatCurrency(supplementPartsCost)}`,
+      `- Original Labor:       ${formatCurrency(originalLaborCost)} ADDED ${formatCurrency(laborAdded)} = TOTAL ${formatCurrency(supplementLaborCost)}`
     ];
     
     changePoints.forEach(point => {
-      if (point === '') {
-        currentY += 2; // Add spacing for empty lines
-      } else {
-        addSafeText(point, safeZone, maxContentWidth, 12, 'normal');
-        currentY += 3;
-      }
+      addSafeText(point, safeZone, maxContentWidth, 12, 'normal');
+      currentY += 3;
     });
 
     currentY += 10;

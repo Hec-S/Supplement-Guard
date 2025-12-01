@@ -707,15 +707,25 @@ Each line item typically contains:
 
 CRITICAL METADATA EXTRACTION (🚨 HIGHEST PRIORITY - EXTRACT FIRST 🚨):
 
-**CLAIM NUMBER:**
-- **LOCATION:** TOP RIGHT corner of the FIRST PAGE, displayed as plain text
-- **LOOK FOR:** The label "Claim #:" followed by the claim number
+**CLAIM NUMBER (🚨 HIGHEST PRIORITY - EXTRACT FIRST 🚨):**
+- **LOCATION:** TOP RIGHT corner of EVERY PAGE, displayed as plain text
+- **LOOK FOR:** The exact label "Claim #:" followed by the claim number
+- **SCANNING INSTRUCTIONS:**
+  1. **SCAN THE TOP RIGHT CORNER OF THE FIRST PAGE FIRST** - this is the most reliable location
+  2. **If not found on first page, scan the top right of ALL subsequent pages** - it appears on every page
+  3. **Look within the top 2 inches of the page** on the right side
+  4. **The text "Claim #:" is always present** - never abbreviated as "Claim" or "Claim Number"
 - **FORMAT:** Appears as a hyphenated number format: XX-XXXXXXXXXX-XX (e.g., "72-0000527150-02", "65-0000545744-01")
 - **VISUAL APPEARANCE:** Plain black text on white background, aligned to the right side of the page
 - **TYPICAL POSITION:** Located near other header information like "Workfile ID:" in the top right area
 - **EXAMPLE:** "Claim #: 72-0000527150-02"
 - **IMPORTANT:** This is plain text, NOT in a highlighted box or special formatting
-- **CRITICAL:** This field is REQUIRED and must always be extracted - do not skip this field
+- **CRITICAL:** This field is REQUIRED and must ALWAYS be extracted - do not skip this field
+- **IF YOU CANNOT FIND IT:**
+  * Re-scan the top right corner of EVERY page in the document
+  * Look for any text containing "Claim" followed by a colon and numbers
+  * Check if it's slightly offset or in a different position than expected
+  * This field is MANDATORY - you must find it before proceeding with other extraction
 
 **VEHICLE INFORMATION:**
 - **LOCATION:** Look for a section labeled "VEHICLE" (all caps, bold header)
