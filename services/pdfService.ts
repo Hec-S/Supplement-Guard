@@ -284,23 +284,28 @@ Please note: Any misrepresentation of repairs, labor, parts, or supplements—in
     const originalHasCategories = claimData.originalInvoice.lineItems.some(item => item.category);
 
     if (originalHasCategories) {
-      // Group items by category
-      const originalByCategory = claimData.originalInvoice.lineItems.reduce((acc, item) => {
-        const category = item.category || 'UNCATEGORIZED';
-        if (!acc[category]) {
-          acc[category] = [];
-        }
-        acc[category].push(item);
-        return acc;
-      }, {} as Record<string, typeof claimData.originalInvoice.lineItems>);
+      // Group items by category, excluding $0.00 items
+      const originalByCategory = claimData.originalInvoice.lineItems
+        .filter(item => item.total !== 0)
+        .reduce((acc, item) => {
+          const category = item.category || 'UNCATEGORIZED';
+          if (!acc[category]) {
+            acc[category] = [];
+          }
+          acc[category].push(item);
+          return acc;
+        }, {} as Record<string, typeof claimData.originalInvoice.lineItems>);
 
       // Process each category
       Object.keys(originalByCategory).sort().forEach(category => {
         const categoryItems = originalByCategory[category];
         if (categoryItems.length === 0) return;
 
+        // Check space for category header + table header + at least one row
+        // Category header: 8mm, Table header: 10mm, One row: 8mm, Padding: 5mm = 31mm total
+        checkPageSpace(31);
+        
         // Add category header
-        checkPageSpace(15);
         doc.setFillColor(240, 240, 240);
         doc.rect(safeZone, currentY, maxContentWidth, 8, 'F');
         doc.setFont(undefined, 'bold');
@@ -339,14 +344,16 @@ Please note: Any misrepresentation of repairs, labor, parts, or supplements—in
       currentY += 30;
     } else {
       // Fallback to original flat table if no categories
-      // Create table for original invoice
+      // Create table for original invoice, excluding $0.00 items
       const originalHeaders = ['Description', 'Qty', 'Price', 'Total'];
-      const originalData = claimData.originalInvoice.lineItems.map(item => [
-        item.description,
-        item.quantity.toString(),
-        formatCurrency(item.price),
-        formatCurrency(item.total)
-      ]);
+      const originalData = claimData.originalInvoice.lineItems
+        .filter(item => item.total !== 0)
+        .map(item => [
+          item.description,
+          item.quantity.toString(),
+          formatCurrency(item.price),
+          formatCurrency(item.total)
+        ]);
       
       // Add totals rows
       originalData.push([
@@ -400,8 +407,13 @@ Please note: Any misrepresentation of repairs, labor, parts, or supplements—in
     const hasCategories = claimData.supplementInvoice.lineItems.some(item => item.category);
 
     if (hasCategories) {
-      // Group items by category
-      const itemsByCategory = claimData.supplementInvoice.lineItems.reduce((acc, item) => {
+      // Filter to show only NEW and CHANGED items (exclude UNCHANGED, REMOVED, and $0.00 items)
+      const changedSupplementItems = claimData.supplementInvoice.lineItems.filter(item =>
+        (item.isNew || item.isChanged) && item.total !== 0
+      );
+
+      // Group ONLY changed items by category
+      const itemsByCategory = changedSupplementItems.reduce((acc, item) => {
         const category = item.category || 'UNCATEGORIZED';
         if (!acc[category]) {
           acc[category] = [];
@@ -410,28 +422,16 @@ Please note: Any misrepresentation of repairs, labor, parts, or supplements—in
         return acc;
       }, {} as Record<string, typeof claimData.supplementInvoice.lineItems>);
 
-      // Also add removed items from original
-      const removedItems = claimData.originalInvoice.lineItems.filter(origItem =>
-        !claimData.supplementInvoice.lineItems.some(suppItem =>
-          suppItem.description.toLowerCase() === origItem.description.toLowerCase()
-        )
-      );
-
-      removedItems.forEach(item => {
-        const category = item.category || 'UNCATEGORIZED';
-        if (!itemsByCategory[category]) {
-          itemsByCategory[category] = [];
-        }
-        itemsByCategory[category].push({ ...item, isRemoved: true });
-      });
-
       // Process each category
       Object.keys(itemsByCategory).sort().forEach(category => {
         const categoryItems = itemsByCategory[category];
         if (categoryItems.length === 0) return;
 
+        // Check space for category header + table header + at least one row
+        // Category header: 8mm, Table header: 10mm, One row: 8mm, Padding: 5mm = 31mm total
+        checkPageSpace(31);
+        
         // Add category header
-        checkPageSpace(15);
         doc.setFillColor(240, 240, 240);
         doc.rect(safeZone, currentY, maxContentWidth, 8, 'F');
         doc.setFont(undefined, 'bold');
@@ -523,17 +523,19 @@ Please note: Any misrepresentation of repairs, labor, parts, or supplements—in
       currentY += 35;
     } else {
       // Fallback to original flat table if no categories
-      // Sort supplement items by status: NEW first, then CHANGED, then SAME
-      const sortedSupplementItems = [...claimData.supplementInvoice.lineItems].sort((a, b) => {
-        // Define status priority: NEW = 1, CHANGED = 2, SAME = 3
-        const getStatusPriority = (item: any) => {
-          if (item.isNew) return 1;
-          if (item.isChanged) return 2;
-          return 3;
-        };
-        
-        return getStatusPriority(a) - getStatusPriority(b);
-      });
+      // Filter and sort: show only NEW and CHANGED items (exclude UNCHANGED, REMOVED, and $0.00 items)
+      const sortedSupplementItems = claimData.supplementInvoice.lineItems
+        .filter(item => (item.isNew || item.isChanged) && item.total !== 0)
+        .sort((a, b) => {
+          // Define status priority: NEW = 1, CHANGED = 2
+          const getStatusPriority = (item: any) => {
+            if (item.isNew) return 1;
+            if (item.isChanged) return 2;
+            return 3; // Won't be reached due to filter
+          };
+          
+          return getStatusPriority(a) - getStatusPriority(b);
+        });
 
       // Create table for supplement invoice with color coding and Charge Type
       const supplementHeaders = ['Description', 'Original Price', 'Price Change', 'New Price', 'Status', 'Charge Type'];
@@ -1038,13 +1040,8 @@ Please note: Any misrepresentation of repairs, labor, parts, or supplements—in
       const colWidth = width / headers.length;
       let tableY = y;
       
-      // Check if table fits on current page
-      const estimatedTableHeight = (data.length + 1) * 10;
-      if (tableY + estimatedTableHeight > pageHeight - safeZone) {
-        doc.addPage();
-        tableY = safeZone;
-        currentY = safeZone;
-      }
+      // Don't add page break here - it's handled before category header
+      // This ensures category header and table stay together
       
       // Headers
       doc.setFillColor(240, 240, 240);
@@ -1174,13 +1171,8 @@ Please note: Any misrepresentation of repairs, labor, parts, or supplements—in
       const colWidth = width / headers.length;
       let tableY = y;
       
-      // Check if table fits on current page
-      const estimatedTableHeight = (data.length + 1) * 10;
-      if (tableY + estimatedTableHeight > pageHeight - safeZone) {
-        doc.addPage();
-        tableY = safeZone;
-        currentY = safeZone;
-      }
+      // Don't add page break here - it's handled before category header
+      // This ensures category header and table stay together
       
       // Headers
       doc.setFillColor(240, 240, 240);
