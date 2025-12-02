@@ -26,7 +26,7 @@ interface LineItemComparison {
   classification?: ChargeClassificationResult;
 }
 
-// Charge type styling configuration
+// Simplified charge type styling configuration for display
 const CHARGE_TYPE_STYLES: Record<ChargeType, {
   label: string;
   color: string;
@@ -35,46 +35,46 @@ const CHARGE_TYPE_STYLES: Record<ChargeType, {
   icon: string;
 }> = {
   [ChargeType.PART_WITH_LABOR]: {
-    label: 'PART + LABOR',
+    label: 'Part + Labor Charge',
     color: 'blue',
     bgColor: 'bg-blue-100',
     textColor: 'text-blue-800',
     icon: '🔧'
   },
   [ChargeType.LABOR_ONLY]: {
-    label: 'LABOR ONLY',
+    label: 'Labor Only Charge',
     color: 'green',
     bgColor: 'bg-green-100',
     textColor: 'text-green-800',
     icon: '⚙️'
   },
   [ChargeType.MATERIAL]: {
-    label: 'MATERIAL',
+    label: 'Mechanical Charge',
     color: 'purple',
     bgColor: 'bg-purple-100',
     textColor: 'text-purple-800',
-    icon: '🎨'
+    icon: '🔩'
   },
   [ChargeType.SUBLET]: {
-    label: 'SUBLET',
+    label: 'Part Only Charge',
     color: 'orange',
     bgColor: 'bg-orange-100',
     textColor: 'text-orange-800',
-    icon: '🏢'
+    icon: '📦'
   },
   [ChargeType.MISCELLANEOUS]: {
-    label: 'MISC',
+    label: 'Mechanical Charge',
     color: 'gray',
     bgColor: 'bg-gray-100',
     textColor: 'text-gray-800',
-    icon: '📋'
+    icon: '🔩'
   },
   [ChargeType.UNKNOWN]: {
-    label: 'UNKNOWN',
+    label: 'Part Only Charge',
     color: 'red',
     bgColor: 'bg-red-100',
     textColor: 'text-red-800',
-    icon: '❓'
+    icon: '📦'
   }
 };
 
@@ -382,112 +382,89 @@ const EnhancedComparisonTable: React.FC<{
           </div>
         </div>
 
-        {/* Supplement Invoice Table */}
+        {/* Repair Changes Summary - Simplified to show only changes */}
         <div className="bg-white rounded-lg border border-slate-200">
           <div className="p-4 border-b border-slate-200">
-            <h4 className="text-lg font-semibold text-slate-700">Final Invoice (with Supplement)</h4>
+            <h4 className="text-lg font-semibold text-slate-700">Repair Changes Summary</h4>
+            <p className="text-sm text-slate-600 mt-1">Only showing items added or changed in the supplement</p>
           </div>
           <div className="overflow-x-auto max-h-96">
             <table className="w-full text-sm">
               <thead className="text-xs text-slate-700 uppercase bg-slate-100 sticky top-0">
                 <tr>
-                  <th className="px-4 py-3 text-left">Description</th>
-                  <th className="px-4 py-3 text-center">Type</th>
-                  <th className="px-4 py-3 text-right">Part Cost</th>
-                  <th className="px-4 py-3 text-right">Labor Cost</th>
-                  <th className="px-4 py-3 text-right">Total</th>
-                  <th className="px-4 py-3 text-center">Status</th>
+                  <th className="px-6 py-3 text-left">Service / Repair ADDED</th>
+                  <th className="px-6 py-3 text-right">Cost</th>
+                  <th className="px-6 py-3 text-center">Charge Type</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-200">
-                {/* Sort supplement items by status: NEW first, then CHANGED, then SAME */}
-                {[...supplementInvoice.lineItems].sort((a, b) => {
-                  // Define status priority: NEW = 1, CHANGED = 2, SAME = 3
-                  const getStatusPriority = (item: any) => {
-                    if (item.isNew) return 1;
-                    if (item.isChanged) return 2;
-                    return 3;
-                  };
-                  
-                  return getStatusPriority(a) - getStatusPriority(b);
-                }).map((item) => {
-                  const comparison = comparisons.find(c => c.supplement?.id === item.id);
-                  const rowClass = comparison?.type === 'new' ? 'bg-blue-50 hover:bg-blue-100' :
-                                  comparison?.type === 'changed' ? 'bg-orange-50 hover:bg-orange-100' :
-                                  'hover:bg-slate-50';
-                  
-                  // Safe access to variance values with fallbacks
-                  const totalVariance = comparison?.totalVariance ?? 0;
-                  const originalTotal = comparison?.original?.total ?? 0;
-                  
-                  // Determine status label
-                  let statusLabel = 'UNCHANGED';
-                  let statusColor = 'text-slate-600';
-                  if (comparison?.type === 'new') {
-                    statusLabel = 'NEW';
-                    statusColor = 'text-blue-600';
-                  } else if (comparison?.type === 'changed') {
-                    statusLabel = 'CHANGED';
-                    statusColor = 'text-orange-600';
-                  }
-                  
-                  return (
-                    <tr key={item.id} className={rowClass}>
-                      <td className="px-4 py-3 font-medium text-slate-900">
-                        {item.description}
-                      </td>
-                      <td className="px-4 py-3 text-center">
-                        {comparison?.classification ? (
-                          <ChargeTypeBadge
-                            type={comparison.classification.chargeType}
-                            confidence={comparison.classification.confidence}
-                          />
-                        ) : (
-                          <span className="text-xs text-slate-400">-</span>
-                        )}
-                      </td>
-                      <td className="px-4 py-3 text-right text-blue-600">
-                        {comparison?.classification?.costBreakdown?.partCost
-                          ? formatCurrency(comparison.classification.costBreakdown.partCost)
-                          : '-'}
-                      </td>
-                      <td className="px-4 py-3 text-right text-green-600 font-semibold">
-                        {comparison?.classification?.costBreakdown?.laborCost
-                          ? formatCurrency(comparison.classification.costBreakdown.laborCost)
-                          : '-'}
-                      </td>
-                      <td className="px-4 py-3 text-right font-semibold">
-                        {formatCurrency(item.total)}
-                      </td>
-                      <td className="px-4 py-3 text-center">
-                        <span className={`font-bold text-xs ${statusColor}`}>
-                          {statusLabel}
-                        </span>
-                      </td>
-                    </tr>
-                  );
-                })}
+                {/* Filter to show only NEW and CHANGED items */}
+                {comparisons
+                  .filter(comparison => comparison.type === 'new' || comparison.type === 'changed')
+                  .sort((a, b) => {
+                    // Sort NEW items first, then CHANGED
+                    if (a.type === 'new' && b.type !== 'new') return -1;
+                    if (a.type !== 'new' && b.type === 'new') return 1;
+                    return 0;
+                  })
+                  .map((comparison) => {
+                    const rowClass = comparison.type === 'new'
+                      ? 'bg-blue-50 hover:bg-blue-100'
+                      : 'bg-orange-50 hover:bg-orange-100';
+                    
+                    // For changed items, show only the added cost (variance)
+                    const displayCost = comparison.type === 'new'
+                      ? comparison.supplement.total
+                      : Math.abs(comparison.totalVariance);
+                    
+                    return (
+                      <tr key={comparison.id} className={rowClass}>
+                        <td className="px-6 py-4 font-medium text-slate-900">
+                          <div className="flex flex-col gap-1">
+                            <span>{comparison.description}</span>
+                            {comparison.type === 'changed' && (
+                              <span className="text-xs text-slate-600">
+                                (Modified from original: {formatCurrency(comparison.original?.total || 0)})
+                              </span>
+                            )}
+                          </div>
+                        </td>
+                        <td className="px-6 py-4 text-right">
+                          <span className={`font-bold text-lg ${comparison.totalVariance > 0 ? 'text-red-600' : 'text-green-600'}`}>
+                            {comparison.totalVariance > 0 ? '+' : ''}{formatCurrency(displayCost)}
+                          </span>
+                        </td>
+                        <td className="px-6 py-4 text-center">
+                          {comparison.classification ? (
+                            <ChargeTypeBadge
+                              type={comparison.classification.chargeType}
+                              confidence={comparison.classification.confidence}
+                            />
+                          ) : (
+                            <span className="text-xs text-slate-400">Unknown</span>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                {comparisons.filter(c => c.type === 'new' || c.type === 'changed').length === 0 && (
+                  <tr>
+                    <td colSpan={3} className="px-6 py-8 text-center text-slate-500">
+                      No changes detected between original and supplement invoices
+                    </td>
+                  </tr>
+                )}
               </tbody>
               <tfoot className="font-semibold text-slate-800 bg-slate-50 sticky bottom-0">
                 <tr>
-                  <td colSpan={3} className="px-4 py-2 text-right">Subtotal</td>
-                  <td className="px-4 py-2 text-right">
-                    {formatCurrency(supplementInvoice.subtotal)}
-                    <ChangeIndicator value={supplementInvoice.subtotal - originalInvoice.subtotal} isCurrency={true} />
+                  <td className="px-6 py-3 text-right">Total Added Cost</td>
+                  <td className="px-6 py-3 text-right">
+                    <span className={`text-lg ${totalVariance > 0 ? 'text-red-600' : 'text-green-600'}`}>
+                      {totalVariance > 0 ? '+' : ''}{formatCurrency(Math.abs(totalVariance))}
+                    </span>
                   </td>
-                </tr>
-                <tr>
-                  <td colSpan={3} className="px-4 py-2 text-right">Tax</td>
-                  <td className="px-4 py-2 text-right">
-                    {formatCurrency(supplementInvoice.tax)}
-                    <ChangeIndicator value={supplementInvoice.tax - originalInvoice.tax} isCurrency={true} />
-                  </td>
-                </tr>
-                <tr>
-                  <td colSpan={3} className="px-4 py-2 text-right text-base">Total</td>
-                  <td className="px-4 py-2 text-right text-base">
-                    {formatCurrency(supplementInvoice.total)}
-                    <ChangeIndicator value={totalVariance} isCurrency={true} />
+                  <td className="px-6 py-3 text-center text-xs text-slate-600">
+                    {comparisons.filter(c => c.type === 'new' || c.type === 'changed').length} item(s)
                   </td>
                 </tr>
               </tfoot>
