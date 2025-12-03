@@ -1,11 +1,11 @@
 import { GoogleGenAI, Type } from "@google/genai";
 import { ClaimData } from '../types';
 
-if (!process.env.GEMINI_API_KEY) {
-  throw new Error("GEMINI_API_KEY environment variable not set. This application requires a valid API key to function.");
+if (!import.meta.env.VITE_GEMINI_API_KEY) {
+  throw new Error("VITE_GEMINI_API_KEY environment variable not set. This application requires a valid API key to function.");
 }
 
-const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY! });
+const ai = new GoogleGenAI({ apiKey: import.meta.env.VITE_GEMINI_API_KEY });
 
 const invoiceLineItemSchema = {
   type: Type.OBJECT,
